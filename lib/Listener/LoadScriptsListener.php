@@ -15,6 +15,7 @@ class LoadScriptsListener implements IEventListener {
 		if (!($event instanceof LoadAdditionalScriptsEvent)) {
 			return;
 		}
+		Util::addScript('meta_data', 'jquery.min');
 		Util::addScript('meta_data', 'meta_data');
 		Util::addStyle('meta_data', 'meta_data');
 	}
