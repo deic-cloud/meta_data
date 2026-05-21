@@ -138,7 +138,7 @@
 			var lblStyle = 'cursor:pointer' + (extraStyle ? ';' + extraStyle : '');
 			var $lbl = $('<label class="label outline label-' + colorClass(tag.color) + '" style="' + lblStyle + '">' +
 				'<i class="icon-tag" style="display:inline-block;margin-right:3px"></i>' +
-				_.escape(tag.name) + '</label>');
+				escapeHtml(tag.name) + '</label>');
 			$row.append($cb, $lbl);
 
 			if (assigned) {
@@ -190,15 +190,20 @@
 		});
 	}
 
+	function escapeHtml(str) {
+		return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+	}
+
 	function showKeyDialog(fileId, tagId, tagName, keys, fileVals) {
-		var $dialog = $('<div class="metadata-key-dialog"></div>');
-		$dialog.append('<h3 style="margin:0 0 8px">' + _.escape(tagName) + '</h3>');
+		var dialog = document.createElement('dialog');
+		dialog.style.cssText = 'width:480px;padding:20px;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.3)';
+
 		var $list = $('<ul class="metadata-key-list" style="list-style:none;padding:0;margin:0"></ul>');
 
 		keys.forEach(function(key) {
 			var $li = $('<li style="margin:4px 0;display:flex;gap:6px;align-items:center"></li>');
 			$li.append('<span style="flex:0 0 120px;overflow:hidden;text-overflow:ellipsis">' +
-				_.escape(key.name) + '</span>');
+				escapeHtml(key.name) + '</span>');
 			var $input;
 			if (key.allowed_values) {
 				var allowed = [];
@@ -223,44 +228,48 @@
 			'<button class="new-key-btn">+</button>'
 		);
 		$list.append($newKeyRow);
-		$dialog.append($list);
 
-		$dialog.dialog({
-			title: t('meta_data', 'Metadata values'),
-			modal: true,
-			width: 480,
-			buttons: [
-				{
-					text: t('meta_data', 'Save'),
-					click: function() {
-						$list.find('li:not(:last-child)').each(function() {
-							var $v    = $(this).find('.key-value');
-							var keyId = $v.data('keyid');
-							var val   = $v.val();
-							if (keyId !== undefined) {
-								ocsPost('filemeta', { fileid: fileId, tagid: tagId, keyid: keyId, value: val });
-							}
-						});
-						$(this).dialog('close');
-					},
-				},
-				{ text: t('meta_data', 'Cancel'), click: function() { $(this).dialog('close'); } },
-			],
-			close: function() { $(this).dialog('destroy').remove(); },
+		var $buttons = $('<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"></div>');
+		var $save   = $('<button>' + t('meta_data', 'Save')   + '</button>');
+		var $cancel = $('<button>' + t('meta_data', 'Cancel') + '</button>');
+		$buttons.append($cancel, $save);
+
+		$(dialog).append(
+			'<h3 style="margin:0 0 12px">' + escapeHtml(tagName) + '</h3>',
+			$list,
+			$buttons
+		);
+		document.body.appendChild(dialog);
+		dialog.showModal();
+
+		$save.on('click', function() {
+			$list.find('li:not(:last-child)').each(function() {
+				var $v    = $(this).find('.key-value');
+				var keyId = $v.data('keyid');
+				var val   = $v.val();
+				if (keyId !== undefined) {
+					ocsPost('filemeta', { fileid: fileId, tagid: tagId, keyid: keyId, value: val });
+				}
+			});
+			dialog.close();
+			dialog.remove();
 		});
 
-		$dialog.on('click', '.new-key-btn', function() {
-			var name = $dialog.find('.new-key-name').val().trim();
+		$cancel.on('click', function() { dialog.close(); dialog.remove(); });
+		$(dialog).on('close', function() { dialog.remove(); });
+
+		$(dialog).on('click', '.new-key-btn', function() {
+			var name = $(dialog).find('.new-key-name').val().trim();
 			if (!name) return;
 			ocsPost('tags/' + tagId + '/keys', { keyname: name }).done(function(data) {
 				if (data && data.key) {
 					var $li = $('<li style="margin:4px 0;display:flex;gap:6px;align-items:center"></li>');
 					$li.append(
-						'<span style="flex:0 0 120px">' + _.escape(data.key.name) + '</span>',
+						'<span style="flex:0 0 120px">' + escapeHtml(data.key.name) + '</span>',
 						$('<input type="text" class="key-value" style="flex:1">').data('keyid', data.key.id)
 					);
 					$newKeyRow.before($li);
-					$dialog.find('.new-key-name').val('');
+					$(dialog).find('.new-key-name').val('');
 				}
 			});
 		});
