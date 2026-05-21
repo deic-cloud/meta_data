@@ -1,6 +1,7 @@
 <?php
 /** @var \OCP\IL10N $l */
 \OCP\Util::addStyle('meta_data', 'meta_data');
+\OCP\Util::addScript('meta_data', 'jquery.min');
 \OCP\Util::addScript('meta_data', 'main');
 ?>
 <div id="app">
