@@ -21,6 +21,8 @@
 
 	// ─── OCS API helpers ──────────────────────────────────────────────────────
 
+	$.ajaxSetup({ headers: { 'OCS-APIREQUEST': 'true', 'requesttoken': OC.requestToken } });
+
 	function apiUrl(path) {
 		return OC.linkToOCS('apps/meta_data/api/v1', 2) + path;
 	}
