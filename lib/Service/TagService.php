@@ -10,8 +10,12 @@ use OCA\MetaData\Db\MetaKey;
 use OCA\MetaData\Db\MetaKeyMapper;
 use OCA\MetaData\Db\TagExtraMapper;
 use OCP\AppFramework\Db\DoesNotExistException;
+use OCP\DB\QueryBuilder\IQueryBuilder;
 use OCP\Files\IRootFolder;
 use OCP\Files\Node;
+use OCP\Http\Client\IClientService;
+use OCP\IConfig;
+use OCP\IDBConnection;
 use OCP\SystemTag\ISystemTag;
 use OCP\SystemTag\ISystemTagManager;
 use OCP\SystemTag\ISystemTagObjectMapper;
@@ -29,6 +33,9 @@ class TagService {
 		private IRootFolder $rootFolder,
 		private LoggerInterface $logger,
 		private ?TagSyncService $syncService = null,
+		private ?IConfig $config = null,
+		private ?IClientService $clientService = null,
+		private ?IDBConnection $db = null,
 	) {
 	}
 
@@ -315,6 +322,166 @@ class TagService {
 			}
 		}
 		return $result;
+	}
+
+	/**
+	 * Returns tags for a file on the local silo by share token + internal path.
+	 * Used by InternalController when a remote silo queries for a federated file's tags.
+	 *
+	 * @return array{id: int, name: string, color: string}[]|null  null if share/file not found
+	 */
+	public function getFileTagsByShareToken(string $token, string $internalPath): ?array {
+		if ($this->db === null) {
+			return null;
+		}
+
+		// Look up the share by token directly (works for all share types including TYPE_REMOTE).
+		try {
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('uid_owner', 'item_source')
+			   ->from('share')
+			   ->where($qb->expr()->eq('token', $qb->createNamedParameter($token)));
+			$cursor = $qb->executeQuery();
+			$row    = $cursor->fetch();
+			$cursor->closeCursor();
+		} catch (\Throwable) {
+			return null;
+		}
+
+		if (!$row) {
+			return null;
+		}
+
+		$owner  = (string)$row['uid_owner'];
+		$fileId = (int)$row['item_source'];
+
+		try {
+			$shareNodes = $this->rootFolder->getUserFolder($owner)->getById($fileId);
+			$shareNode  = $shareNodes[0] ?? null;
+			if ($shareNode === null) {
+				return null;
+			}
+			$fileNode = ($internalPath !== '' && $internalPath !== '.')
+				? $shareNode->get($internalPath)
+				: $shareNode;
+		} catch (\Throwable) {
+			return null;
+		}
+
+		$tagsPerFile = $this->getFileTags([$fileNode->getId()]);
+		return $tagsPerFile[$fileNode->getId()] ?? [];
+	}
+
+	/**
+	 * For a locally-mounted external (federated) share, query the origin silo for
+	 * the file's tags and translate them to local tag IDs by name.
+	 *
+	 * Returns null if the file is not a remote share, or if the lookup fails.
+	 *
+	 * @return array{id: int, name: string, color: string}[]|null
+	 */
+	public function getRemoteFileTags(int $fileId, string $userId): ?array {
+		if ($this->config === null || $this->clientService === null || $this->db === null) {
+			return null;
+		}
+
+		$secret = (string)$this->config->getSystemValue('files_sharding_shared_secret', '');
+		if ($secret === '') {
+			return null;
+		}
+
+		// Resolve external share info via DB to avoid triggering the file-node
+		// API chain that loads the DAV contacts manager (throws in NC34).
+		try {
+			// 1. storage numeric id + file path from filecache
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('storage', 'path')
+				->from('filecache')
+				->where($qb->expr()->eq('fileid', $qb->createNamedParameter($fileId, IQueryBuilder::PARAM_INT)));
+			$cursor = $qb->executeQuery();
+			$fcRow  = $cursor->fetch();
+			$cursor->closeCursor();
+			if (!$fcRow) {
+				return null;
+			}
+			$storageNumericId = (int)$fcRow['storage'];
+			$internalPath     = (string)$fcRow['path'];
+
+			// 2. storage string id (shared::<hash> for federated shares)
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('id')
+				->from('storages')
+				->where($qb->expr()->eq('numeric_id', $qb->createNamedParameter($storageNumericId, IQueryBuilder::PARAM_INT)));
+			$cursor = $qb->executeQuery();
+			$stRow  = $cursor->fetch();
+			$cursor->closeCursor();
+			if (!$stRow || !str_starts_with((string)$stRow['id'], 'shared::')) {
+				return null;
+			}
+			$storageHash = substr((string)$stRow['id'], 8);
+
+			// 3. match against this user's external shares
+			// Storage ID = 'shared::' . md5($token . '@' . rtrim($remote, '/'))
+			$qb = $this->db->getQueryBuilder();
+			$qb->select('remote', 'share_token')
+				->from('share_external')
+				->where($qb->expr()->eq('user', $qb->createNamedParameter($userId)));
+			$cursor = $qb->executeQuery();
+			$remote = null;
+			$token  = null;
+			while ($row = $cursor->fetch()) {
+				if (md5($row['share_token'] . '@' . rtrim((string)$row['remote'], '/')) === $storageHash) {
+					$remote = rtrim((string)$row['remote'], '/');
+					$token  = (string)$row['share_token'];
+					break;
+				}
+			}
+			$cursor->closeCursor();
+		} catch (\Throwable) {
+			return null;
+		}
+
+		if ($remote === null || $token === null) {
+			return null;
+		}
+
+		$url = $remote . '/index.php/apps/meta_data/internal/filetags-by-token';
+
+		try {
+			$client   = $this->clientService->newClient();
+			$response = $client->post($url, [
+				'json'    => ['token' => $token, 'path' => $internalPath],
+				'headers' => ['Authorization' => 'Bearer ' . $secret],
+				'timeout' => 5,
+				'connect_timeout' => 3,
+				'verify'  => true,
+			]);
+			$body = json_decode((string)$response->getBody(), true);
+			if (!is_array($body) || !isset($body['tags'])) {
+				return null;
+			}
+		} catch (\Throwable $e) {
+			$this->logger->debug('meta_data: remote tag lookup failed for file ' . $fileId . ': ' . $e->getMessage());
+			return null;
+		}
+
+		// Translate remote tag names to local IDs
+		$localTags = [];
+		foreach ($body['tags'] as $remoteTag) {
+			$name = (string)($remoteTag['name'] ?? '');
+			if ($name === '') {
+				continue;
+			}
+			$localId = $this->getTagIdByName($name);
+			if ($localId !== null) {
+				$localTagInfo = $this->getTagById($localId);
+				if ($localTagInfo !== null) {
+					$localTags[] = $localTagInfo;
+				}
+			}
+		}
+
+		return $localTags;
 	}
 
 	public function addFileTag(int $fileId, int $tagId): void {

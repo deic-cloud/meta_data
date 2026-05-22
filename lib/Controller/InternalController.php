@@ -8,6 +8,7 @@ use OCA\MetaData\Db\MetaKey;
 use OCA\MetaData\Db\MetaKeyMapper;
 use OCA\MetaData\Db\TagExtraMapper;
 use OCA\MetaData\Service\IShardingAdapter;
+use OCA\MetaData\Service\TagService;
 use OCA\MetaData\Service\TagSyncService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
@@ -38,6 +39,7 @@ class InternalController extends Controller {
 		private IShardingAdapter $sharding,
 		private IConfig         $config,
 		private IDBConnection   $db,
+		private TagService      $tagService,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -209,5 +211,30 @@ class InternalController extends Controller {
 
 		// Remove keys that no longer exist on master.
 		$this->keyMapper->deleteByTagIdNotInNames($localTagId, $syncedNames);
+	}
+
+	/**
+	 * Return tags for a file identified by its share token and internal path.
+	 * Called by remote silos when they serve a federated-share file and need
+	 * to display the original file's metadata tags.
+	 */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function getFileTagsByToken(string $token = '', string $path = ''): JSONResponse {
+		$check = $this->checkSecret();
+		if ($check !== null) {
+			return $check;
+		}
+
+		if ($token === '') {
+			return new JSONResponse(['error' => 'missing token'], 400);
+		}
+
+		$tags = $this->tagService->getFileTagsByShareToken($token, $path);
+		if ($tags === null) {
+			return new JSONResponse(['tags' => []]);
+		}
+
+		return new JSONResponse(['tags' => $tags]);
 	}
 }

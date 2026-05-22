@@ -88,7 +88,8 @@
 		// (mirrors the WebDAV property structure; see systemtags/src/utils.ts)
 		var raw = node.attributes['system-tags'] && node.attributes['system-tags']['system-tag'];
 		var current = raw === undefined ? [] :
-			[].concat(raw).map(function(t) { return typeof t === 'string' ? t : (t.text || ''); });
+			[].concat(raw).map(function(t) { return typeof t === 'string' ? t : (t.text || ''); })
+			.filter(function(t) { return t !== ''; });
 
 		if (added) {
 			if (current.indexOf(tagName) === -1) current.push(tagName);
@@ -443,6 +444,56 @@
 		}
 	}
 
+	// ─── Pre-load tags for all files in the current folder view ─────────────
+	//
+	// When the files list loads a directory, batch-fetch tags for every visible
+	// file and inject any remote (cross-silo) tags into the node's system-tags
+	// attribute so NC's built-in tag chips appear in the files list.
+
+	function preloadFolderTags(nodes) {
+		if (!nodes || !nodes.length || !window._nc_event_bus) return;
+
+		var fileids = [];
+		var nodeById = {};
+		nodes.forEach(function(node) {
+			var id = node.fileid || node.id;
+			if (id) {
+				fileids.push(id);
+				nodeById[String(id)] = node;
+			}
+		});
+		if (!fileids.length) return;
+
+		ocsPost('filetags', { fileids: fileids }).done(function(data) {
+			var files = (data && data.files) ? data.files : [];
+			files.forEach(function(f) {
+				if (!f.tags || !f.tags.length) return;
+				var node = nodeById[String(f.id)];
+				if (!node) return;
+
+				var raw = node.attributes && node.attributes['system-tags'] &&
+					node.attributes['system-tags']['system-tag'];
+				var existing = raw === undefined ? [] :
+					[].concat(raw).map(function(t) { return typeof t === 'string' ? t : (t.text || ''); })
+					.filter(function(t) { return t !== ''; });
+
+				var changed = false;
+				f.tags.forEach(function(tag) {
+					if (existing.indexOf(tag.name) === -1) {
+						existing.push(tag.name);
+						changed = true;
+					}
+				});
+
+				if (changed) {
+					if (!node.attributes) node.attributes = {};
+					node.attributes['system-tags'] = { 'system-tag': existing };
+					window._nc_event_bus.emit('systemtags:node:updated', node);
+				}
+			});
+		});
+	}
+
 	// ─── Bootstrap ───────────────────────────────────────────────────────────
 
 	defineCustomElement();
@@ -453,6 +504,24 @@
 
 	$(document).ready(function() {
 		tryRegisterSidebarTab(40);
+		if (window._nc_event_bus) {
+			window._nc_event_bus.subscribe('files:list:updated', function(event) {
+				preloadFolderTags(event && event.contents);
+			});
+		} else {
+			// Event bus may not be ready at DOMContentLoaded; retry briefly.
+			var attempts = 0;
+			var iv = setInterval(function() {
+				if (window._nc_event_bus) {
+					clearInterval(iv);
+					window._nc_event_bus.subscribe('files:list:updated', function(event) {
+						preloadFolderTags(event && event.contents);
+					});
+				} else if (++attempts > 20) {
+					clearInterval(iv);
+				}
+			}, 250);
+		}
 	});
 
 })(window.OCA = window.OCA || {}, OC, jQuery);

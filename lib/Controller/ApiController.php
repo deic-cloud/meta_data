@@ -213,7 +213,20 @@ class ApiController extends OCSController {
 			return new DataResponse(['files' => []]);
 		}
 
-		$fileTags = $this->tagService->getFileTags(array_unique($ids));
+		$userId   = $this->userId();
+		$uniqueIds = array_unique($ids);
+		$fileTags = $this->tagService->getFileTags($uniqueIds);
+
+		// For files with no local tags, check if they live on a remote (federated) mount
+		foreach ($uniqueIds as $fileId) {
+			if (empty($fileTags[$fileId])) {
+				$remoteTags = $this->tagService->getRemoteFileTags($fileId, $userId);
+				if ($remoteTags !== null && !empty($remoteTags)) {
+					$fileTags[$fileId] = $remoteTags;
+				}
+			}
+		}
+
 		$result = [];
 		foreach ($fileTags as $fid => $tags) {
 			$result[] = ['id' => $fid, 'tags' => $tags];

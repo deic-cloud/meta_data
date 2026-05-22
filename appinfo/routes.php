@@ -5,8 +5,9 @@ declare(strict_types=1);
 return [
 	'routes' => [
 		['name' => 'page#index',              'url' => '/',                      'verb' => 'GET'],
-		['name' => 'internal#syncTag',        'url' => '/internal/tags/sync',    'verb' => 'POST'],
-		['name' => 'internal#deleteTag',      'url' => '/internal/tags/delete',  'verb' => 'POST'],
+		['name' => 'internal#syncTag',           'url' => '/internal/tags/sync',           'verb' => 'POST'],
+		['name' => 'internal#deleteTag',         'url' => '/internal/tags/delete',         'verb' => 'POST'],
+		['name' => 'internal#getFileTagsByToken', 'url' => '/internal/filetags-by-token',  'verb' => 'POST'],
 	],
 	'ocs' => [
 		// Tags
