@@ -7,10 +7,10 @@
 	<description>Define custom metadata schemas (tags with typed key/value fields) and attach them to files. Search and filter files by metadata values.</description>
 	<version>1.0.1</version>
 	<licence>agpl</licence>
-	<author mail="cbri@dtu.dk">Christian Brinch, DeIC</author>
+	<author mail="cbri@dtu.dk">Christian Brinch, DTU</author>
 	<namespace>MetaData</namespace>
 	<category>files</category>
-	<bugs>https://github.com/deic-dk/meta_data/issues</bugs>
+	<bugs>https://github.com/deic-cloud/meta_data/issues</bugs>
 	<dependencies>
 		<nextcloud min-version="28" max-version="34"/>
 		<php min-version="8.2"/>
