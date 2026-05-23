@@ -1,4 +1,4 @@
-# meta_data — Metadata Tags
+# meta_data — Metadata tags
 
 Tag schemas with typed key/value fields for files and directories, integrated with Nextcloud systemtags.
 
