@@ -12,6 +12,11 @@
 (function(OCA, OC, $) {
 	'use strict';
 
+	var PENCIL_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">' +
+		'<path d="M20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.84 ' +
+		'1.83 3.75 3.75M3 17.25V21h3.75L17.81 9.93l-3.75-3.75L3 17.25Z"/>' +
+		'</svg>';
+
 	var TAG_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">' +
 		'<path d="M5.5 7A1.5 1.5 0 0 0 4 8.5 1.5 1.5 0 0 0 5.5 10 1.5 1.5 0 0 0 7 8.5' +
 		' 1.5 1.5 0 0 0 5.5 7M11.86 2C11.31 2 10.77 2.21 10.36 2.61L3 10A2 2 0 0 0 3' +
@@ -144,7 +149,7 @@
 
 			if (assigned) {
 				var $btn = $('<button class="metadata-keys-btn" style="margin-left:auto" title="' +
-					t('meta_data', 'Edit metadata values') + '">&#9998;</button>');
+					t('meta_data', 'Edit metadata values') + '">' + PENCIL_SVG + '</button>');
 				$btn.data('tagid', tag.id).data('fileid', fileId).data('tagname', tag.name);
 				$row.append($btn);
 			}
@@ -216,6 +221,12 @@
 						.prop('selected', fileVals[key.id] === v)
 						.appendTo($input);
 				});
+			} else if (key.type === 'date') {
+				// datetime-local: calendar + a time you can set by hand. A stored
+				// date-only value shows at 00:00.
+				var dv = fileVals[key.id] || '';
+				if (/^\d{4}-\d{2}-\d{2}$/.test(dv)) { dv += 'T00:00'; }
+				$input = $('<input type="datetime-local" class="key-value" style="flex:1">').data('keyid', key.id).val(dv);
 			} else {
 				$input = $('<input type="text" class="key-value" style="flex:1">').data('keyid', key.id).val(fileVals[key.id] || '');
 			}

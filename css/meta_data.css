@@ -367,11 +367,24 @@ span.deletekey:hover {
 	background: none;
 	border: none;
 	cursor: pointer;
-	opacity: 0.7;
+	color: var(--color-primary-element);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	border-radius: var(--border-radius);
+	flex-shrink: 0;
 }
 
 .metadata-keys-btn:hover {
-	opacity: 1;
+	background: var(--color-background-hover);
+}
+
+.metadata-keys-btn svg {
+	width: 20px;
+	height: 20px;
+	fill: currentColor;
 }
 
 .metadata-key-list {
