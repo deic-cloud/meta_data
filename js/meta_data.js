@@ -221,12 +221,25 @@
 						.prop('selected', fileVals[key.id] === v)
 						.appendTo($input);
 				});
-			} else if (key.type === 'date') {
-				// datetime-local: calendar + a time you can set by hand. A stored
-				// date-only value shows at 00:00.
-				var dv = fileVals[key.id] || '';
-				if (/^\d{4}-\d{2}-\d{2}$/.test(dv)) { dv += 'T00:00'; }
-				$input = $('<input type="datetime-local" class="key-value" style="flex:1">').data('keyid', key.id).val(dv);
+			} else if (key.type === 'datetime') {
+				// A native datetime-local yields no value unless BOTH date and time
+				// are filled, so a date-only pick saved nothing. Use a date picker
+				// plus an optional time, combined into a hidden .key-value
+				// (date alone -> 00:00) so the save loop is unchanged.
+				var raw = fileVals[key.id] || '';
+				var dpart = /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : '';
+				var tpart = raw.slice(11, 16) || '';
+				$input = $('<span style="flex:1;display:inline-flex;gap:4px;align-items:center"></span>');
+				var $hidden = $('<input type="hidden" class="key-value">').data('keyid', key.id).val(raw);
+				var $d = $('<input type="date" style="width:auto">').val(dpart);
+				var $t = $('<input type="time" style="width:auto;max-width:90px" title="' + t('meta_data', 'Time (optional)') + '">').val(tpart);
+				var syncDt = function() {
+					var v = $d.val() ? ($d.val() + 'T' + ($t.val() || '00:00')) : '';
+					$hidden.val(v);
+				};
+				$d.on('change', syncDt);
+				$t.on('change', syncDt);
+				$input.append($hidden, $d, $t);
 			} else {
 				$input = $('<input type="text" class="key-value" style="flex:1">').data('keyid', key.id).val(fileVals[key.id] || '');
 			}

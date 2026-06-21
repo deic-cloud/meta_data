@@ -257,7 +257,7 @@
 		var optionSelect = '<select class="type" title="' + t('meta_data', 'Non-string types') + '">' +
 			'<option value="">' + t('meta_data', 'Type') + '</option>' +
 			'<option value="controlled">' + t('meta_data', 'Controlled') + '</option>' +
-			'<option value="date">' + t('meta_data', 'Date') + '</option>' +
+			'<option value="datetime">' + t('meta_data', 'Date & time') + '</option>' +
 			'<option value="json">JSON</option></select>' +
 			'<input placeholder="value1, value2, ..." class="controlled_values" type="text" value="" />';
 
