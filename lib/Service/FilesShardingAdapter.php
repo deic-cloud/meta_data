@@ -13,5 +13,6 @@ class FilesShardingAdapter implements IShardingAdapter {
 	public function isMaster(): bool                       { return $this->service->isMaster(); }
 	public function getAllServers(): array                  { return $this->service->getAllServers(); }
 	public function apiUrlForServer(mixed $server): string { return $this->service->apiUrlForServer($server); }
+	public function isSelf(mixed $server): bool             { return $this->service->isSelf($server); }
 	public function masterInternalUrl(): string             { return $this->service->masterInternalUrl(); }
 }

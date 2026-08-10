@@ -82,6 +82,7 @@ class TagSyncService {
 	private function syncTargets(): array {
 		$urls = [];
 		foreach ($this->sharding->getAllServers() as $server) {
+			if ($this->sharding->isSelf($server)) { continue; } // don't push to ourselves
 			$urls[] = $this->sharding->apiUrlForServer($server);
 		}
 		if (!$this->sharding->isMaster()) {
