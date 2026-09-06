@@ -319,6 +319,14 @@ class ApiController extends OCSController {
 			return new DataResponse([], 404);
 		}
 		$keys = $this->tagService->getFileKeys($fid, $tid);
+		if ($keys === []) {
+			// Federated file? Values live on the owner's node — read through by
+			// share token (the same mechanism tags already use).
+			$remote = $this->tagService->getRemoteFileKeys($fid, $this->userId(), $tid);
+			if (is_array($remote)) {
+				$keys = $remote;
+			}
+		}
 		return new DataResponse(['data' => $keys]);
 	}
 
@@ -336,6 +344,23 @@ class ApiController extends OCSController {
 			return new DataResponse([], 404);
 		}
 		$metadata = $this->tagService->getFileMetadata($fid, $tid);
+		if (empty($metadata['attributes'])) {
+			// Federated file? Values live on the owner's node — read through by
+			// share token (the same mechanism tags already use).
+			$remoteRows = $this->tagService->getRemoteFileKeys($fid, $this->userId(), $tid);
+			if (is_array($remoteRows) && $remoteRows !== []) {
+				$names = [];
+				foreach ($this->tagService->getKeys($tid) as $k) {
+					$names[(int)$k['id']] = (string)$k['name'];
+				}
+				foreach ($remoteRows as $row) {
+					$kid = (int)$row['keyid'];
+					if (isset($names[$kid])) {
+						$metadata['attributes'][] = ['name' => $names[$kid], 'value' => (string)$row['value']];
+					}
+				}
+			}
+		}
 		return new DataResponse($metadata);
 	}
 

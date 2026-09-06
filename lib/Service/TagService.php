@@ -369,7 +369,34 @@ class TagService {
 		}
 
 		$tagsPerFile = $this->getFileTags([$fileNode->getId()]);
-		return $tagsPerFile[$fileNode->getId()] ?? [];
+		$tags = $tagsPerFile[$fileNode->getId()] ?? [];
+
+		// Attach the metadata VALUES per tag, keyed by key NAME — names are the
+		// cross-node identity (numeric tag/key ids differ between nodes).
+		$fid = $fileNode->getId();
+		foreach ($tags as &$tag) {
+			$tagId = (int)($tag['id'] ?? 0);
+			if ($tagId <= 0) {
+				continue;
+			}
+			$keyNames = [];
+			foreach ($this->getKeys($tagId) as $k) {
+				$keyNames[(int)$k['id']] = (string)$k['name'];
+			}
+			$values = [];
+			foreach ($this->getFileKeys($fid, $tagId) as $row) {
+				$kid = (int)($row['keyid'] ?? 0);
+				$val = (string)($row['value'] ?? '');
+				if ($val !== '' && isset($keyNames[$kid])) {
+					$values[$keyNames[$kid]] = $val;
+				}
+			}
+			if ($values !== []) {
+				$tag['values'] = $values;
+			}
+		}
+		unset($tag);
+		return $tags;
 	}
 
 	/**
@@ -381,6 +408,80 @@ class TagService {
 	 * @return array{id: int, name: string, color: string}[]|null
 	 */
 	public function getRemoteFileTags(int $fileId, string $userId): ?array {
+		$remoteTags = $this->fetchRemoteTagData($fileId, $userId);
+		if ($remoteTags === null) {
+			return null;
+		}
+
+		// Translate remote tag names to local IDs
+		$localTags = [];
+		foreach ($remoteTags as $remoteTag) {
+			$name = (string)($remoteTag['name'] ?? '');
+			if ($name === '') {
+				continue;
+			}
+			$localId = $this->getTagIdByName($name);
+			if ($localId !== null) {
+				$localTagInfo = $this->getTagById($localId);
+				if ($localTagInfo !== null) {
+					$localTags[] = $localTagInfo;
+				}
+			}
+		}
+
+		return $localTags;
+	}
+
+	/**
+	 * Metadata VALUES of a federated file, translated to the LOCAL key ids of
+	 * $localTagId — same [{keyid, value}] shape as getFileKeys(), so callers can
+	 * fall back to it transparently when the local table has nothing (the file
+	 * lives on the owner\'s node; values are read through by share token, like
+	 * tags already were).
+	 *
+	 * @return array<array{keyid:int, value:string}>|null null = not a federated
+	 *         file / remote unreachable (callers keep their local result)
+	 */
+	public function getRemoteFileKeys(int $fileId, string $userId, int $localTagId): ?array {
+		$remoteTags = $this->fetchRemoteTagData($fileId, $userId);
+		if ($remoteTags === null) {
+			return null;
+		}
+		$localTag = $this->getTagById($localTagId);
+		$tagName  = (string)($localTag['name'] ?? '');
+		if ($tagName === '') {
+			return null;
+		}
+		foreach ($remoteTags as $remoteTag) {
+			if ((string)($remoteTag['name'] ?? '') !== $tagName) {
+				continue;
+			}
+			$values = $remoteTag['values'] ?? [];
+			if (!is_array($values) || $values === []) {
+				return [];
+			}
+			// key NAMES → local key ids
+			$idByName = [];
+			foreach ($this->getKeys($localTagId) as $k) {
+				$idByName[(string)$k['name']] = (int)$k['id'];
+			}
+			$rows = [];
+			foreach ($values as $name => $value) {
+				if (isset($idByName[(string)$name]) && (string)$value !== '') {
+					$rows[] = ['keyid' => $idByName[(string)$name], 'value' => (string)$value];
+				}
+			}
+			return $rows;
+		}
+		return [];
+	}
+
+	/**
+	 * Resolve a local fileid belonging to a federated mount to its owner node and
+	 * fetch the owner\'s tag+values data by share token. null = not federated /
+	 * secret unset / remote unreachable.
+	 */
+	private function fetchRemoteTagData(int $fileId, string $userId): ?array {
 		if ($this->config === null || $this->clientService === null || $this->db === null) {
 			return null;
 		}
@@ -465,23 +566,7 @@ class TagService {
 			return null;
 		}
 
-		// Translate remote tag names to local IDs
-		$localTags = [];
-		foreach ($body['tags'] as $remoteTag) {
-			$name = (string)($remoteTag['name'] ?? '');
-			if ($name === '') {
-				continue;
-			}
-			$localId = $this->getTagIdByName($name);
-			if ($localId !== null) {
-				$localTagInfo = $this->getTagById($localId);
-				if ($localTagInfo !== null) {
-					$localTags[] = $localTagInfo;
-				}
-			}
-		}
-
-		return $localTags;
+		return is_array($body['tags']) ? $body['tags'] : [];
 	}
 
 	public function addFileTag(int $fileId, int $tagId): void {
