@@ -72,12 +72,15 @@ class Version005Date20260831120000 extends SimpleMigrationStep {
 				// refresh description + color (name unchanged)
 				$svc->updateTag($tagId, null, (string)($schema['description'] ?? ''), (string)($schema['color'] ?? ''));
 				foreach (($schema['keys'] ?? []) as $key) {
-					$key = (string)$key;
-					if ($key === '') {
+					// A key is a plain name or ['name'=>, 'type'=>, 'allowed_values'=>].
+					$keyName = is_array($key) ? (string)($key['name'] ?? '') : (string)$key;
+					$type    = is_array($key) ? (string)($key['type'] ?? '') : '';
+					$allowed = is_array($key) ? (string)($key['allowed_values'] ?? '') : '';
+					if ($keyName === '') {
 						continue;
 					}
-					if ($svc->getKeyIdByName($tagId, $key) === null) {
-						$svc->newKey($tagId, $key);
+					if ($svc->getKeyIdByName($tagId, $keyName) === null) {
+						$svc->newKey($tagId, $keyName, $type, $allowed);
 						$keysAdded++;
 					}
 				}

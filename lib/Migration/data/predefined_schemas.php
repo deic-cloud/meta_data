@@ -2,8 +2,11 @@
 
 declare(strict_types=1);
 
-// Predefined metadata schemas seeded by Version004 (sourced from the old
-// ScienceData service 2026-08-31; see reference/metadata_schemas/). Idempotent.
+// Predefined metadata schemas seeded by the seed migrations (sourced from the
+// old ScienceData service 2026-08-31; notes-family keys re-extracted with types
+// and allowed values 2026-09-06 — the first extraction lost them). Idempotent.
+// A key is either a plain name, or ['name'=>, 'type'=>, 'allowed_values'=>]
+// ('controlled' type = value must be one of allowed_values, a JSON list).
 return [
 	[
 		'name' => 'DUBLIN_CORE',
@@ -63,42 +66,42 @@ http://icatproject.org/user-documentation/icat-schema/',
 		'name' => 'diary',
 		'color' => '6F42C1',
 		'description' => 'Diary note for Notes app',
-		'keys' => [],
+		'keys' => ['place', ['name' => 'mood', 'type' => 'controlled', 'allowed_values' => '["🙂", "🙂 🙂", "🙂 🙂 🙂", "🙂 🙂 🙂 🙂", "🙂 🙂 🙂 🙂 🙂"]']],
 	],
 	[
 		'name' => 'illustration',
 		'color' => '1B456D',
 		'description' => 'denotes that the file is an illustration and has an Creative Commons license (https://creativecommons.org/licenses/) or CC0 public domain waiver (https://creativecommons.org/share-your-work/public-domain/cc0) associated with it',
-		'keys' => [],
+		'keys' => [['name' => 'license', 'type' => '', 'allowed_values' => '["CC0", "BY", "BY-SA", "BY-NC", "BY-NC-SA", "BY-ND", "BY-NC-ND", "C"]']],
 	],
 	[
 		'name' => 'lab_notebook',
 		'color' => 'C9302C',
 		'description' => 'Laboratory notebook entry, i.e. note for a given day.',
-		'keys' => [],
+		'keys' => ['project', 'date'],
 	],
 	[
 		'name' => 'log',
 		'color' => 'C9302C',
 		'description' => 'Log book entry, i.e. log for a given day.',
-		'keys' => [],
+		'keys' => ['project', 'event_date', ['name' => 'status', 'type' => 'controlled', 'allowed_values' => '["▓▒▒▒▒▒▒▒▒▒", "▓▓▒▒▒▒▒▒▒▒", "▓▓▓▒▒▒▒▒▒▒", "▓▓▓▓▒▒▒▒▒▒", "▓▓▓▓▓▒▒▒▒▒▒", "▓▓▓▓▓▓▒▒▒▒", "▓▓▓▓▓▓▓▒▒▒", "▓▓▓▓▓▓▓▓▒▒", "▓▓▓▓▓▓▓▓▓▒", "▓▓▓▓▓▓▓▓▓▓"]']],
 	],
 	[
 		'name' => 'paper',
 		'color' => '235789',
 		'description' => 'Research paper',
-		'keys' => [],
+		'keys' => ['authors', 'date', 'journal'],
 	],
 	[
 		'name' => 'recipe',
 		'color' => '235789',
 		'description' => 'Recipe note for Notes app',
-		'keys' => [],
+		'keys' => ['cooking_time', ['name' => 'spiciness', 'type' => 'controlled', 'allowed_values' => '["🌶", "🌶 🌶", "🌶 🌶 🌶", "🌶 🌶 🌶 🌶", "🌶 🌶 🌶 🌶 🌶"]'], ['name' => 'category', 'type' => '', 'allowed_values' => '["starter", "main_course", "desert", "other"]']],
 	],
 	[
 		'name' => 'todo',
 		'color' => '8A6D3B',
 		'description' => 'Todo note for Notes app',
-		'keys' => [],
+		'keys' => ['due', ['name' => 'priority', 'type' => '', 'allowed_values' => '["1", "2", "3"]'], ['name' => 'status', 'type' => '', 'allowed_values' => '["open", "done"]']],
 	],
 ];
