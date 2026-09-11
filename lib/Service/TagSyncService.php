@@ -61,6 +61,29 @@ class TagSyncService {
 
 	// ── Internal HTTP helpers ─────────────────────────────────────────────────
 
+	/**
+	 * Verify the TLS certificate for $baseUrl? Yes by default, but not for a
+	 * private/reserved IP target (10/8, 172.16/12, 192.168/16, …): those are the
+	 * cluster's backend addresses (files_sharding_servers.internal_url), reached by
+	 * IP on the firewalled backend network, so their certificate can never carry
+	 * that name — and needn't (shared-secret authed). Same rule as files_sharding's
+	 * InterServerClient; without it every push to a silo's internal URL failed
+	 * with a certificate error. 'files_sharding_verify_ssl' => false disables
+	 * verification everywhere.
+	 */
+	private function verifyFor(string $baseUrl): bool {
+		if (!$this->verifySsl) {
+			return false;
+		}
+		$host = (string)parse_url($baseUrl, PHP_URL_HOST);
+		if ($host !== ''
+			&& filter_var($host, FILTER_VALIDATE_IP) !== false
+			&& filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+			return false;
+		}
+		return true;
+	}
+
 	private function post(string $baseUrl, string $path, array $body = []): bool {
 		if ($this->secret === '') return false;
 		$url = rtrim($baseUrl, '/') . '/index.php/apps/meta_data/' . ltrim($path, '/');
@@ -68,7 +91,7 @@ class TagSyncService {
 			$this->clientService->newClient()->post($url, [
 				'headers'     => ['Authorization' => 'Bearer ' . $this->secret, 'Accept' => 'application/json'],
 				'form_params' => $body,
-				'verify'      => $this->verifySsl,
+				'verify'      => $this->verifyFor($baseUrl),
 				'timeout'     => 10,
 			]);
 			return true;
