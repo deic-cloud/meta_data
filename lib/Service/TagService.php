@@ -210,7 +210,8 @@ class TagService {
 				return null;
 			}
 		}
-		$result = $this->tagToArray($tag);
+		// Re-read so the result carries description/owner from the extras row.
+		$result = $this->getTagById((int)$tag->getId()) ?? $this->tagToArray($tag);
 		$this->pushSync((int)$tag->getId());
 		return $result;
 	}
