@@ -403,3 +403,11 @@ span.deletekey:hover {
 .metadata-key-list .key-value {
 	flex: 1;
 }
+
+/* Ownership + field import */
+#tagstable .column-owner { color: var(--color-text-maxcontrast); white-space: nowrap; }
+#tagstable .column-owner .system-owner { font-style: italic; }
+#tag-details-owner { margin: 0 0 12px 0; font-size: 13px; color: var(--color-text-maxcontrast); }
+#import-fields { margin-top: 16px; }
+#import-fields .import-row { display: flex; gap: 8px; align-items: center; }
+#import-fields .import-row input { flex: 1; }

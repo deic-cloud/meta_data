@@ -8,6 +8,7 @@ use OCA\MetaData\Service\TagService;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\OCSController;
+use OCP\IGroupManager;
 use OCP\IRequest;
 use OCP\IUserSession;
 
@@ -17,12 +18,33 @@ class ApiController extends OCSController {
 		IRequest $request,
 		private TagService $tagService,
 		private IUserSession $userSession,
+		private IGroupManager $groupManager,
 	) {
 		parent::__construct($appName, $request);
 	}
 
 	private function userId(): string {
 		return $this->userSession->getUser()?->getUID() ?? '';
+	}
+
+	private function isAdmin(): bool {
+		$uid = $this->userId();
+		return $uid !== '' && $this->groupManager->isAdmin($uid);
+	}
+
+	/** Ownership gate for changes to a tag/schema (see TagService::canEdit). */
+	private function canEdit(int $tagId): bool {
+		return $this->tagService->canEdit($tagId, $this->userId(), $this->isAdmin());
+	}
+
+	private function forbidden(): DataResponse {
+		return new DataResponse(['message' => 'Only the owner of this tag or an administrator can change it'], 403);
+	}
+
+	/** Add the caller-specific 'editable' flag to a tag array. */
+	private function withEditable(array $tag): array {
+		$tag['editable'] = $this->tagService->canEdit((int)$tag['id'], $this->userId(), $this->isAdmin());
+		return $tag;
 	}
 
 	// ── Resolution helpers ────────────────────────────────────────────────────
@@ -69,6 +91,11 @@ class ApiController extends OCSController {
 	public function getTags(string $name = '%', string $fileCount = ''): DataResponse {
 		$withFileCount = ($fileCount === '1' || $fileCount === 'true');
 		$tags = $this->tagService->searchTags($name, $withFileCount);
+		$uid = $this->userId(); $admin = $this->isAdmin();
+		foreach ($tags as &$tag) {
+			$tag['editable'] = $admin || ($tag['owner'] !== '' && $tag['owner'] === $uid);
+		}
+		unset($tag);
 		return new DataResponse(['tags' => $tags]);
 	}
 
@@ -82,16 +109,30 @@ class ApiController extends OCSController {
 		if ($tag === null) {
 			return new DataResponse([], 404);
 		}
-		return new DataResponse(['tag' => $tag]);
+		return new DataResponse(['tag' => $this->withEditable($tag)]);
 	}
 
 	#[NoAdminRequired]
 	public function newTag(string $name, string $color = ''): DataResponse {
-		$tag = $this->tagService->newTag($name, $color);
+		$tag = $this->tagService->newTag($name, $color, $this->userId());
 		if ($tag === null) {
 			return new DataResponse(['message' => 'Tag already exists or name is empty'], 400);
 		}
-		return new DataResponse(['tag' => $tag]);
+		return new DataResponse(['tag' => $this->withEditable($tag)]);
+	}
+
+	/** Admin: hand a tag (e.g. a seeded schema or a pre-ownership tag) to a user. */
+	#[NoAdminRequired]
+	public function setTagOwner(string $tagId, string $owner): DataResponse {
+		if (!$this->isAdmin()) {
+			return new DataResponse(['message' => 'Only administrators can change the owner of a tag'], 403);
+		}
+		$id = $this->resolveTag($tagId);
+		if ($id === null) {
+			return new DataResponse(['message' => 'Tag not found'], 404);
+		}
+		$this->tagService->setOwner($id, trim($owner));
+		return new DataResponse(['success' => true, 'owner' => trim($owner)]);
 	}
 
 	#[NoAdminRequired]
@@ -105,6 +146,9 @@ class ApiController extends OCSController {
 		if ($id === null) {
 			return new DataResponse(['message' => 'Tag not found'], 404);
 		}
+		if (!$this->canEdit($id)) {
+			return $this->forbidden();
+		}
 		$ok = $this->tagService->updateTag($id, $name, $description, $color);
 		return new DataResponse(['success' => $ok]);
 	}
@@ -114,6 +158,9 @@ class ApiController extends OCSController {
 		$id = $this->resolveTag($tagId);
 		if ($id === null) {
 			return new DataResponse(['message' => 'Tag not found'], 404);
+		}
+		if (!$this->canEdit($id)) {
+			return $this->forbidden();
 		}
 		$ok = $this->tagService->deleteTag($id);
 		return new DataResponse(['success' => $ok]);
@@ -142,6 +189,9 @@ class ApiController extends OCSController {
 		if ($id === null) {
 			return new DataResponse(['message' => 'Tag not found'], 404);
 		}
+		if (!$this->canEdit($id)) {
+			return $this->forbidden();
+		}
 		$key = $this->tagService->newKey($id, $keyname, $type, $controlledvalues);
 		if ($key === null) {
 			return new DataResponse(['message' => 'Key name is empty'], 400);
@@ -161,6 +211,9 @@ class ApiController extends OCSController {
 		if ($tid === null) {
 			return new DataResponse(['message' => 'Tag not found'], 404);
 		}
+		if (!$this->canEdit($tid)) {
+			return $this->forbidden();
+		}
 		$kid = $this->resolveKey($tid, $keyId);
 		if ($kid === null) {
 			return new DataResponse(['message' => 'Key not found'], 404);
@@ -174,6 +227,9 @@ class ApiController extends OCSController {
 		$tid = $this->resolveTag($tagId);
 		if ($tid === null) {
 			return new DataResponse(['message' => 'Tag not found'], 404);
+		}
+		if (!$this->canEdit($tid)) {
+			return $this->forbidden();
 		}
 		$kid = $this->resolveKey($tid, $keyId);
 		if ($kid === null) {

@@ -11,10 +11,14 @@ use OCP\AppFramework\Db\Entity;
  * @method void setSystemtagId(int $systemtagId)
  * @method string getDescription()
  * @method void setDescription(string $description)
+ * @method string getCreatedBy()
+ * @method void setCreatedBy(string $createdBy)
  */
 class TagExtra extends Entity {
 	protected int $systemtagId = 0;
 	protected string $description = '';
+	/** uid of the tag's owner; '' = nobody (seeded or pre-ownership tag → admins only) */
+	protected string $createdBy = '';
 
 	public function __construct() {
 		$this->addType('systemtagId', 'int');

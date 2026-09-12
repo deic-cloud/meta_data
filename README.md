@@ -10,6 +10,32 @@ Authors: Christian Brinch, DTU and Frederik Orellana, DTU (frederik@orellana.dk)
 
 Tags appear as chips in the Files app sidebar and file list (via `systemtags:node:updated`). In a ScienceData sharded deployment with `files_sharding`, tag schemas are propagated across nodes so that federated-share files carry the same tags on every node. Tag identity across nodes is resolved by name, not by systemtag ID (IDs differ per node).
 
+## Ownership of tags (schemas)
+
+Nextcloud system tags have no owner, and core lets any user rename any tag.
+For a service whose purpose is permanent safekeeping of research data that is
+not acceptable — someone could spend weeks equipping data with metadata and
+find the schema renamed, changed or gone. So `meta_data` records the creator
+of every tag (`meta_data_tag_extras.created_by`) and enforces:
+
+| Action | Who |
+|---|---|
+| Assign / unassign a tag on own files, fill in values | everyone |
+| Create a tag | everyone (becomes its owner) |
+| Rename, recolour, describe, add/edit/remove fields, delete | **owner or administrator** (`403` otherwise) |
+| Predefined schemas (DUBLIN_CORE, …) and tags from before ownership (`created_by = ''`) | administrators only |
+| Hand a tag to a user | administrators: `PUT /api/v1/tags/{tagId}/owner` `{owner}` |
+
+Tag arrays carry `owner` and, per caller, `editable`; the Metadata app shows an
+*Owner* column, opens foreign tags read-only, and the Files sidebar only offers
+"add field" on editable tags. Ownership is part of the cross-silo tag sync
+(`owner` in `/internal/tags/sync`), so it is the same on every node.
+
+**Import fields from another tag**: the schema editor has a search field
+(*Import fields from another tag*) that copies the fields of an existing tag
+into the schema being edited — as new rows, saved with *Save*; fields whose
+name already exists are skipped.
+
 ## Requirements
 
 - Nextcloud 34+
@@ -41,7 +67,8 @@ All OCS endpoints are under `/ocs/v2.php/apps/meta_data`. Append `?format=json` 
 | Method | URL | Description |
 |--------|-----|-------------|
 | `GET` | `/api/v1/tags` | List tags. Optional `name` filter (`%` wildcard). Add `fileCount=1` for per-tag file counts. |
-| `GET` | `/api/v1/tags/{tagId}` | Get one tag by ID or name. |
+| `GET` | `/api/v1/tags/{tagId}` | Get one tag by ID or name (incl. `owner`, `editable`). |
+| `PUT` | `/api/v1/tags/{tagId}/owner` | Admin: set the tag's owner (`owner` = uid, '' = none/admin-only). |
 | `POST` | `/api/v1/tags` | Create tag. |
 | `PUT` | `/api/v1/tags/{tagId}` | Update tag. |
 | `DELETE` | `/api/v1/tags/{tagId}` | Delete tag and all its keys. |

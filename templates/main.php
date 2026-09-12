@@ -16,6 +16,7 @@
 <thead>
 <tr>
 	<th class="column-name"><?php p($l->t('Tag')); ?></th>
+	<th class="column-owner"><?php p($l->t('Owner')); ?></th>
 	<th class="column-files"><?php p($l->t('Files')); ?></th>
 	<th class="column-actions"></th>
 </tr>
@@ -46,10 +47,19 @@
 			<label><?php p($l->t('Description')); ?></label>
 			<textarea class="editdesc"></textarea>
 		</div>
+		<p id="tag-details-owner" class="settings-hint"></p>
 		<h3><?php p($l->t('Metadata fields')); ?></h3>
 		<div id="emptysearch"><?php p($l->t('No metadata fields defined')); ?></div>
 		<ul id="meta_data_keys"></ul>
 		<button id="add_key" class="button"><?php p($l->t('Add field')); ?></button>
+		<div id="import-fields" class="tag-details-field">
+			<label for="import-tag-search"><?php p($l->t('Import fields from another tag')); ?></label>
+			<div class="import-row">
+				<input type="text" id="import-tag-search" list="import-tag-list" placeholder="<?php p($l->t('Type to search tags…')); ?>" autocomplete="off">
+				<datalist id="import-tag-list"></datalist>
+				<button type="button" id="import-fields-btn" class="button"><?php p($l->t('Import')); ?></button>
+			</div>
+		</div>
 	</div>
 	<div class="tag-details-footer">
 		<button id="details-save" class="button primary"><?php p($l->t('Save')); ?></button>

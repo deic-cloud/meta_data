@@ -37,12 +37,14 @@ class TagSyncService {
 		string $color,
 		string $description,
 		array  $keys,
+		string $owner = '',
 	): void {
 		$payload = [
 			'name'        => $name,
 			'color'       => $color,
 			'description' => $description,
 			'keys'        => json_encode($keys),
+			'owner'       => $owner,
 		];
 		foreach ($this->syncTargets() as $url) {
 			if (!$this->post($url, 'internal/tags/sync', $payload)) {

@@ -16,6 +16,7 @@ return [
 		['name' => 'api#updateTag',   'url' => '/api/v1/tags/{tagId}',  'verb' => 'PUT'],
 		['name' => 'api#deleteTag',   'url' => '/api/v1/tags/{tagId}',  'verb' => 'DELETE'],
 		['name' => 'api#getTagById',  'url' => '/api/v1/tags/{tagId}',  'verb' => 'GET'],
+		['name' => 'api#setTagOwner', 'url' => '/api/v1/tags/{tagId}/owner', 'verb' => 'PUT'],
 
 		// Keys
 		['name' => 'api#getKeys',     'url' => '/api/v1/tags/{tagId}/keys',          'verb' => 'GET'],

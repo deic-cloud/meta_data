@@ -41,16 +41,42 @@ class TagService {
 
 	// ── Helpers ───────────────────────────────────────────────────────────────
 
-	/** @param array<int,string> $descriptions */
-	private function tagToArray(ISystemTag $tag, array $descriptions = []): array {
+	/** @param array<int, array{description: string, created_by: string}> $extras */
+	private function tagToArray(ISystemTag $tag, array $extras = []): array {
+		$e = $extras[(int)$tag->getId()] ?? ['description' => '', 'created_by' => ''];
 		return [
 			'id'             => (int)$tag->getId(),
 			'name'           => $tag->getName(),
-			'description'    => $descriptions[(int)$tag->getId()] ?? '',
+			'description'    => $e['description'],
+			'owner'          => $e['created_by'],
 			'color'          => $tag->getColor() ?? '',
 			'userVisible'    => $tag->isUserVisible(),
 			'userAssignable' => $tag->isUserAssignable(),
 		];
+	}
+
+	// ── Ownership ────────────────────────────────────────────────────────────
+
+	/**
+	 * May $uid change this tag (rename, description, colour, fields, delete)?
+	 * Only its owner or an admin; a tag without owner (seeded schemas, tags from
+	 * before ownership) is admin-only. Assigning tags to files is not gated.
+	 */
+	public function canEdit(int $tagId, string $uid, bool $isAdmin): bool {
+		if ($isAdmin) {
+			return true;
+		}
+		if ($uid === '') {
+			return false;
+		}
+		$extras = $this->tagExtraMapper->findExtrasByIds([$tagId]);
+		$owner  = $extras[$tagId]['created_by'] ?? '';
+		return $owner !== '' && $owner === $uid;
+	}
+
+	public function setOwner(int $tagId, string $uid): void {
+		$this->tagExtraMapper->setOwner($tagId, $uid);
+		$this->pushSync($tagId);
 	}
 
 	// ── Sync helper ──────────────────────────────────────────────────────────
@@ -65,12 +91,12 @@ class TagService {
 			'type'          => $k['type'],
 			'allowedValues' => $k['allowed_values'] ?? '',
 		], $this->getKeys($tagId));
-		$descriptions = $this->tagExtraMapper->findDescriptionsByIds([$tagId]);
 		$this->syncService->pushTagToAllSilos(
 			$tag['name'],
 			$tag['color'],
-			$descriptions[$tagId] ?? '',
+			$tag['description'],
 			$keys,
+			$tag['owner'],
 		);
 	}
 
@@ -116,12 +142,12 @@ class TagService {
 			return [];
 		}
 
-		$descriptions = $this->tagExtraMapper->findDescriptionsByIds(
+		$extras = $this->tagExtraMapper->findExtrasByIds(
 			array_map(fn(ISystemTag $t) => (int)$t->getId(), $tags)
 		);
 
-		return array_values(array_map(function (ISystemTag $t) use ($descriptions, $withFileCount): array {
-			$data = $this->tagToArray($t, $descriptions);
+		return array_values(array_map(function (ISystemTag $t) use ($extras, $withFileCount): array {
+			$data = $this->tagToArray($t, $extras);
 			if ($withFileCount) {
 				$fileIds = $this->systemTagObjectMapper->getObjectIdsForTags([$t->getId()], 'files');
 				$data['size'] = count($fileIds);
@@ -137,8 +163,8 @@ class TagService {
 			if (!$tag) {
 				return null;
 			}
-			$descriptions = $this->tagExtraMapper->findDescriptionsByIds([$tagId]);
-			return $this->tagToArray($tag, $descriptions);
+			$extras = $this->tagExtraMapper->findExtrasByIds([$tagId]);
+			return $this->tagToArray($tag, $extras);
 		} catch (TagNotFoundException) {
 			return null;
 		}
@@ -154,17 +180,17 @@ class TagService {
 		} catch (TagNotFoundException) {
 			return [];
 		}
-		$descriptions = $this->tagExtraMapper->findDescriptionsByIds(
+		$extras = $this->tagExtraMapper->findExtrasByIds(
 			array_map(fn(ISystemTag $t) => (int)$t->getId(), $tags)
 		);
 		$result = [];
 		foreach ($tags as $tag) {
-			$result[(int)$tag->getId()] = $this->tagToArray($tag, $descriptions);
+			$result[(int)$tag->getId()] = $this->tagToArray($tag, $extras);
 		}
 		return $result;
 	}
 
-	public function newTag(string $name, string $color = ''): ?array {
+	public function newTag(string $name, string $color = '', string $owner = ''): ?array {
 		if (trim($name) === '') {
 			return null;
 		}
@@ -173,6 +199,8 @@ class TagService {
 		} catch (TagAlreadyExistsException) {
 			return null;
 		}
+		// Owner from the start ('' for seeded schemas → admin-only).
+		$this->tagExtraMapper->upsert((int)$tag->getId(), '', $owner);
 		if ($color !== '') {
 			$this->systemTagManager->updateTag($tag->getId(), $name, true, true, $color);
 			try {

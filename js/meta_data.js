@@ -187,12 +187,15 @@
 	function openKeyEditor(fileId, tagId, tagName) {
 		$.when(
 			ocsGet('tags/' + tagId + '/keys'),
-			ocsGet('filemeta', { fileid: fileId, tagid: tagId })
-		).done(function(keysData, fileKeysData) {
+			ocsGet('filemeta', { fileid: fileId, tagid: tagId }),
+			ocsGet('tags/' + tagId)
+		).done(function(keysData, fileKeysData, tagData) {
 			var keys     = (keysData    && keysData.keys)  ? keysData.keys  : [];
 			var fileVals = {};
 			((fileKeysData && fileKeysData.data) || []).forEach(function(kv) { fileVals[kv.keyid] = kv.value; });
-			showKeyDialog(fileId, tagId, tagName, keys, fileVals);
+			// Adding a field changes the schema for everyone → owner/admin only.
+			var editable = !!(tagData && tagData.tag && tagData.tag.editable);
+			showKeyDialog(fileId, tagId, tagName, keys, fileVals, editable);
 		});
 	}
 
@@ -200,7 +203,7 @@
 		return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 	}
 
-	function showKeyDialog(fileId, tagId, tagName, keys, fileVals) {
+	function showKeyDialog(fileId, tagId, tagName, keys, fileVals, editable) {
 		var dialog = document.createElement('dialog');
 		dialog.style.cssText = 'width:480px;padding:20px;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.3)';
 
@@ -248,10 +251,12 @@
 		});
 
 		var $newKeyRow = $('<li style="margin-top:8px;display:flex;gap:6px"></li>');
-		$newKeyRow.append(
-			'<input type="text" class="new-key-name" placeholder="' + t('meta_data', 'New key name') + '" style="flex:1">',
-			'<button class="new-key-btn">+</button>'
-		);
+		if (editable) {
+			$newKeyRow.append(
+				'<input type="text" class="new-key-name" placeholder="' + t('meta_data', 'New key name') + '" style="flex:1">',
+				'<button class="new-key-btn">+</button>'
+			);
+		}
 		$list.append($newKeyRow);
 
 		var $buttons = $('<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"></div>');

@@ -50,6 +50,8 @@
 
 	// ── Tag list ──────────────────────────────────────────────────────────────
 
+	var allTags = []; // last loaded tag list (also feeds the field-import search)
+
 	function updateTagsView() {
 		$('#tagList').empty();
 		$('#tagSummary').empty();
@@ -57,14 +59,17 @@
 		ocsGet('tags', { fileCount: true }).done(function(data) {
 			var tags = data.tags || [];
 			var total = 0;
+			allTags = tags;
 
+			var $dl = $('#import-tag-list').empty();
 			tags.forEach(function(tag) {
 				addTagRow(tag);
 				total += parseInt(tag.size || 0);
+				$dl.append($('<option>').attr('value', tag.name));
 			});
 
 			$('#tagSummary').append(
-				'<tr><td colspan="3">' +
+				'<tr><td colspan="4">' +
 				tags.length + ' ' + t('meta_data', 'tags') + ' &mdash; ' +
 				total + ' ' + t('meta_data', 'files') +
 				'</td></tr>'
@@ -77,20 +82,30 @@
 		var labelClass = 'tag-label' + (hex ? ' has-color' : '');
 		var labelStyle = hex ? 'background:#' + hex + ';border-color:#' + hex : '';
 
+		var editable = !!tag.editable;
+		var ownerCell = tag.owner
+			? _.escape(tag.owner)
+			: '<span class="system-owner" title="' + t('meta_data', 'Predefined schema — administrators only') + '">' + t('meta_data', 'system') + '</span>';
+
 		$('#tagList').append(
 			'<tr data-id="' + tag.id + '" data-name="' + _.escape(tag.name) +
 			'" data-color="' + _.escape(tag.color || '') +
-			'" data-desc="' + _.escape(tag.description || '') + '">' +
+			'" data-desc="' + _.escape(tag.description || '') +
+			'" data-owner="' + _.escape(tag.owner || '') +
+			'" data-editable="' + (editable ? '1' : '0') + '">' +
 			'<td class="column-name">' +
 			'<span class="taginfo" title="' + _.escape(tag.description || '') + '">' +
 			'<a class="action-meta_data ' + labelClass + '" href="#" style="' + labelStyle + '">' +
 			'<span class="tagname">' + _.escape(tag.name) + '</span>' +
 			'</a></span></td>' +
+			'<td class="column-owner">' + ownerCell + '</td>' +
 			'<td class="column-files">' +
 			'<a href="' + OC.generateUrl('/apps/files') + '?dir=%2F&view=tag-' + tag.id + '">' +
 			(tag.size || 0) + '</a></td>' +
 			'<td class="column-actions">' +
-			'<span class="delete-tag icon icon-delete" title="' + t('meta_data', 'Delete tag') + '" data-id="' + tag.id + '" data-name="' + _.escape(tag.name) + '"></span>' +
+			(editable
+				? '<span class="delete-tag icon icon-delete" title="' + t('meta_data', 'Delete tag') + '" data-id="' + tag.id + '" data-name="' + _.escape(tag.name) + '"></span>'
+				: '') +
 			'</td>' +
 			'</tr>'
 		);
@@ -118,9 +133,24 @@
 		}
 	}
 
-	function openSchemaEditor(tagid, tagname, tagcolor, tagdesc, readonly) {
+	function openSchemaEditor(tagid, tagname, tagcolor, tagdesc, readonly, owner) {
 		currentTagId = tagid;
 		detailsReadonly = readonly;
+
+		// Ownership: only the owner or an admin may change a tag; everyone may
+		// look at its schema and assign it.
+		var $ownerHint = $('#tag-details-owner');
+		if (!tagid) {
+			$ownerHint.text(t('meta_data', 'You will be the owner of this tag: only you and administrators can change or delete it.'));
+		} else if (readonly) {
+			$ownerHint.text(owner
+				? t('meta_data', 'Owned by {owner}. Only the owner or an administrator can change or delete this tag; you can assign it to your files.', { owner: owner })
+				: t('meta_data', 'Predefined schema. Only administrators can change or delete it; you can assign it to your files.'));
+		} else {
+			$ownerHint.text(owner ? t('meta_data', 'Owned by {owner}.', { owner: owner }) : t('meta_data', 'Predefined schema (no owner).'));
+		}
+		$('#import-fields').toggle(!readonly);
+		$('#import-tag-search').val('');
 
 		$('#meta_data_keys').empty();
 		$('#emptysearch').show();
@@ -305,7 +335,7 @@
 			openSchemaEditor(null, '', '', '', false);
 		});
 
-		// Open schema editor on tag name click
+		// Open schema editor on tag name click (read-only unless owner/admin)
 		$(document).on('click', '#tagList tr td.column-name a.action-meta_data', function(e) {
 			e.preventDefault();
 			var $tr = $(this).closest('tr');
@@ -314,9 +344,49 @@
 				$tr.attr('data-name'),
 				$tr.attr('data-color') || '',
 				$tr.find('.taginfo').attr('title') || '',
-				false
+				$tr.attr('data-editable') !== '1',
+				$tr.attr('data-owner') || ''
 			);
 		});
+
+		// Import the fields of another tag into the schema being edited
+		// (as new, unsaved rows — Save persists them; existing names are skipped).
+		function importFields() {
+			if (detailsReadonly) return;
+			var name = $('#import-tag-search').val().trim();
+			if (!name) return;
+			var source = null;
+			for (var i = 0; i < allTags.length; i++) {
+				if (allTags[i].name.toLowerCase() === name.toLowerCase()) { source = allTags[i]; break; }
+			}
+			if (!source) {
+				OC.Notification.showTemporary(t('meta_data', 'No tag named "{name}"', { name: name }));
+				return;
+			}
+			if (String(source.id) === String(currentTagId)) return;
+			ocsGet('tags/' + source.id + '/keys').done(function(data) {
+				var keys = data.keys || [];
+				var present = {};
+				$('#meta_data_keys li').not('.del').each(function() {
+					present[$(this).find('input.edit').val().trim().toLowerCase()] = true;
+				});
+				var added = 0;
+				keys.forEach(function(key) {
+					if (present[key.name.toLowerCase()]) return;
+					$('#meta_data_keys').append(newKeyEntry(
+						{ name: key.name, type: key.type || '', allowed_values: key.allowed_values || '' }, false, true));
+					present[key.name.toLowerCase()] = true;
+					added++;
+				});
+				if (added > 0) $('#emptysearch').hide();
+				$('#import-tag-search').val('');
+				OC.Notification.showTemporary(added > 0
+					? n('meta_data', '%n field imported from "{name}" — press Save to keep it', '%n fields imported from "{name}" — press Save to keep them', added, { name: source.name })
+					: t('meta_data', '"{name}" has no fields that are not already here', { name: source.name }));
+			});
+		}
+		$('#import-fields-btn').on('click', importFields);
+		$('#import-tag-search').on('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); importFields(); } });
 
 		// Delete tag
 		$(document).on('click', '#tagList tr td.column-actions .delete-tag', function(e) {

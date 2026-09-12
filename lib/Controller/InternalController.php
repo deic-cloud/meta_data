@@ -64,6 +64,7 @@ class InternalController extends Controller {
 		string $color       = '',
 		string $description = '',
 		string $keys        = '[]',
+		string $owner       = '',
 	): JSONResponse {
 		if ($err = $this->checkSecret()) return $err;
 
@@ -80,14 +81,14 @@ class InternalController extends Controller {
 		$localTagId = $this->upsertSystemTag($name, $color);
 
 		// ── Upsert description ────────────────────────────────────────────────
-		$this->tagExtraMapper->upsert($localTagId, $description);
+		$this->tagExtraMapper->upsert($localTagId, $description, $owner);
 
 		// ── Sync keys by name ─────────────────────────────────────────────────
 		$this->syncKeys($localTagId, $keysData);
 
 		// ── Relay (master only) ───────────────────────────────────────────────
 		if ($this->sharding->isMaster()) {
-			$this->syncService->pushTagToAllSilos($name, $color, $description, $keysData);
+			$this->syncService->pushTagToAllSilos($name, $color, $description, $keysData, $owner);
 		}
 
 		return new JSONResponse(['status' => 'ok']);

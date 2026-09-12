@@ -25,34 +25,63 @@ class TagExtraMapper extends QBMapper {
 
 	/**
 	 * @param int[] $systemTagIds
-	 * @return array<int, string> map of systemTagId => description
+	 * @return array<int, array{description: string, created_by: string}> keyed by systemtag id
 	 */
-	public function findDescriptionsByIds(array $systemTagIds): array {
+	public function findExtrasByIds(array $systemTagIds): array {
 		if (empty($systemTagIds)) {
 			return [];
 		}
 		$qb = $this->db->getQueryBuilder();
-		$qb->select('systemtag_id', 'description')->from($this->getTableName())
+		$qb->select('systemtag_id', 'description', 'created_by')->from($this->getTableName())
 			->where($qb->expr()->in('systemtag_id', $qb->createNamedParameter($systemTagIds, IQueryBuilder::PARAM_INT_ARRAY)));
 		$result = $qb->executeQuery();
 		$map = [];
 		while ($row = $result->fetch()) {
-			$map[(int)$row['systemtag_id']] = (string)$row['description'];
+			$map[(int)$row['systemtag_id']] = [
+				'description' => (string)$row['description'],
+				'created_by'  => (string)($row['created_by'] ?? ''),
+			];
 		}
 		$result->closeCursor();
 		return $map;
 	}
 
-	public function upsert(int $systemTagId, string $description): void {
+	/**
+	 * @param int[] $systemTagIds
+	 * @return array<int, string> map of systemTagId => description
+	 */
+	public function findDescriptionsByIds(array $systemTagIds): array {
+		return array_map(static fn(array $e) => $e['description'], $this->findExtrasByIds($systemTagIds));
+	}
+
+	/**
+	 * Create or update the extras row. $createdBy null = leave the owner as is
+	 * (a description edit must never change ownership).
+	 */
+	public function upsert(int $systemTagId, string $description, ?string $createdBy = null): void {
 		try {
 			$extra = $this->findBySystemTagId($systemTagId);
 			$extra->setDescription($description);
+			if ($createdBy !== null) {
+				$extra->setCreatedBy($createdBy);
+			}
 			$this->update($extra);
 		} catch (DoesNotExistException) {
 			$extra = new TagExtra();
 			$extra->setSystemtagId($systemTagId);
 			$extra->setDescription($description);
+			$extra->setCreatedBy($createdBy ?? '');
 			$this->insert($extra);
+		}
+	}
+
+	public function setOwner(int $systemTagId, string $createdBy): void {
+		try {
+			$extra = $this->findBySystemTagId($systemTagId);
+			$extra->setCreatedBy($createdBy);
+			$this->update($extra);
+		} catch (DoesNotExistException) {
+			$this->upsert($systemTagId, '', $createdBy);
 		}
 	}
 
