@@ -23,7 +23,8 @@ class Version007Date20260912200000 extends SimpleMigrationStep {
 		if ($schema->hasTable('meta_data_tag_extras')) {
 			$table = $schema->getTable('meta_data_tag_extras');
 			if (!$table->hasColumn('created_by')) {
-				$table->addColumn('created_by', Types::STRING, ['notnull' => true, 'default' => '', 'length' => 64]);
+				// NC refuses NOT NULL string columns with an empty default → nullable; null reads as ''.
+				$table->addColumn('created_by', Types::STRING, ['notnull' => false, 'default' => null, 'length' => 64]);
 			}
 		}
 		return $schema;
