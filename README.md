@@ -36,6 +36,17 @@ Tag arrays carry `owner` and, per caller, `editable`; the Metadata app shows an
 into the schema being edited — as new rows, saved with *Save*; fields whose
 name already exists are skipped.
 
+## Search syntax (unified search, *Metadata* group)
+
+| Term | Result |
+|---|---|
+| `tag:NAME` | tags whose name contains NAME (open one to list its files) |
+| `WORD …` | files whose metadata **values** contain the word(s) |
+| `FIELD:VALUE …` | files whose field FIELD (case-insensitive name) contains VALUE |
+| `tag:NAME FIELD:VALUE …` | the same, restricted to files carrying the tag |
+
+Criteria are ANDed per file; each hit shows `tag › field=value` as subline. (Old-service syntax; `title:test` alone works too.)
+
 ## Requirements
 
 - Nextcloud 34+
