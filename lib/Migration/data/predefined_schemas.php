@@ -57,12 +57,6 @@ http://icatproject.org/user-documentation/icat-schema/',
 		'keys' => ['Title', 'Description'],
 	],
 	[
-		'name' => 'ScienceNotebooks',
-		'color' => '8A6D3B',
-		'description' => 'Metadata for publishing to sciencenotebooks.dk.',
-		'keys' => ['Category'],
-	],
-	[
 		'name' => 'diary',
 		'color' => '6F42C1',
 		'description' => 'Diary note for Notes app',
