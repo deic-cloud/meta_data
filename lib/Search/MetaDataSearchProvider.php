@@ -133,10 +133,9 @@ class MetaDataSearchProvider implements IProvider {
 			if ($key) {
 				$subline .= ' › ' . $key['name'] . '=' . $row['value'];
 			}
-			$url = $this->urlGenerator->linkToRoute('files.View.index', [
-				'dir'      => dirname($row['path']),
-				'scrollto' => $row['name'],
-			]);
+			// /f/<fileid>: core resolves the folder and highlights the file — no
+			// path juggling (the row's path is absolute, /<uid>/files/…).
+			$url = $this->urlGenerator->linkToRoute('files.View.showFile', ['fileid' => (int)$row['fileid']]);
 			$entries[] = new SearchResultEntry('', $row['name'], $subline, $url, 'icon-tag');
 		}
 		return SearchResult::complete($this->getName(), $entries);
