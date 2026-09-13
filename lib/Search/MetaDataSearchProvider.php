@@ -40,7 +40,9 @@ class MetaDataSearchProvider implements IProvider {
 
 		// Tag name search: "tag:foo"
 		if (preg_match('/^tag:(.+)$/i', $term, $m)) {
-			$tags = $this->tagService->searchTags($m[1] . '%');
+			// ISystemTagManager::getAllTags() escapes LIKE wildcards in the pattern
+			// and wraps it in its own %…% — pass the bare term (substring match).
+			$tags = $this->tagService->searchTags(trim($m[1]));
 			foreach ($tags as $tag) {
 				$url = $this->urlGenerator->linkToRoute('files.View.index', [
 					'dir' => '/',
