@@ -67,11 +67,13 @@ class MetaDataSearchProvider implements IProvider {
 			// ISystemTagManager::getAllTags() escapes LIKE wildcards in the pattern
 			// and wraps it in its own %…% — pass the bare term (substring match).
 			foreach ($this->tagService->searchTags($tagName) as $tag) {
-				// NC34 Files router: the Tags view is /apps/files/tags/<tag id>
-				// (the old ?view=tag-<id> query form falls back to All files).
-				$url = $this->urlGenerator->linkToRoute('files.view.indexViewFileid', [
-					'view'   => 'tags',
-					'fileid' => $tag['id'],
+				// NC34 Files router: a tag's file list is the Tags view with the tag id
+				// as directory — /apps/files/tags?dir=/<id>. (A path segment after the
+				// view would be the SELECTED file, and the old ?view=tag-<id> form is
+				// not understood at all.)
+				$url = $this->urlGenerator->linkToRoute('files.view.indexView', [
+					'view' => 'tags',
+					'dir'  => '/' . $tag['id'],
 				]);
 				$entries[] = new SearchResultEntry('', $tag['name'], $this->l10n->t('Tag'), $url, 'icon-tag');
 			}
