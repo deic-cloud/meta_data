@@ -131,6 +131,15 @@ class TagService {
 		return null;
 	}
 
+	/**
+	 * Ids of the fields named $keyName (case-insensitive), in $tagId or, when
+	 * null, in any tag — the FIELD:VALUE search criterion.
+	 * @return int[]
+	 */
+	public function findKeyIdsByName(string $keyName, ?int $tagId = null): array {
+		return array_map(fn(MetaKey $k) => (int)$k->getId(), $this->keyMapper->findByName($keyName, $tagId));
+	}
+
 	/** Resolve a user-relative file path to a file ID, or null if not found. */
 	public function resolveFilePath(string $path, string $userId): ?int {
 		try {

@@ -49,6 +49,18 @@ class MetaKeyMapper extends QBMapper {
 		return $this->findEntities($qb);
 	}
 
+	/** Keys named $name (case-insensitive), optionally within one tag. @return MetaKey[] */
+	public function findByName(string $name, ?int $tagId = null): array {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('*')
+			->from($this->getTableName())
+			->where($qb->expr()->eq($qb->func()->lower('name'), $qb->createNamedParameter(mb_strtolower(trim($name)))));
+		if ($tagId !== null) {
+			$qb->andWhere($qb->expr()->eq('tagid', $qb->createNamedParameter($tagId, IQueryBuilder::PARAM_INT)));
+		}
+		return $this->findEntities($qb);
+	}
+
 	/** @return MetaKey[] */
 	public function findByTagAndName(int $tagId, string $pattern): array {
 		$qb = $this->db->getQueryBuilder();

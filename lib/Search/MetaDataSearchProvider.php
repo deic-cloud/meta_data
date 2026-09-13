@@ -33,64 +33,108 @@ class MetaDataSearchProvider implements IProvider {
 		return $route === 'files.View.index' ? 5 : 15;
 	}
 
+	/**
+	 * Search syntax (old-service compatible):
+	 *   tag:NAME                 → the matching tags (open one to list its files)
+	 *   WORD …                   → files whose metadata VALUES contain the word(s)
+	 *   FIELD:VALUE …            → files whose field FIELD contains VALUE
+	 *   tag:NAME FIELD:VALUE …   → the same, restricted to files carrying the tag
+	 * Several criteria are ANDed (a file must satisfy all of them).
+	 */
 	public function search(IUser $user, ISearchQuery $query): SearchResult {
-		$term = $query->getTerm();
+		$term   = trim($query->getTerm());
 		$userId = $user->getUID();
-		$entries = [];
 
-		// Tag name search: "tag:foo"
-		if (preg_match('/^tag:(.+)$/i', $term, $m)) {
+		$tagName = null;
+		$pairs   = [];
+		$words   = [];
+		foreach (preg_split('/\s+/', $term) ?: [] as $tok) {
+			if ($tok === '') {
+				continue;
+			}
+			if (preg_match('/^tag:(.+)$/i', $tok, $m)) {
+				$tagName = $m[1];
+			} elseif (preg_match('/^([^:\s]+):(.+)$/', $tok, $m)) {
+				$pairs[] = [$m[1], $m[2]];
+			} else {
+				$words[] = $tok;
+			}
+		}
+
+		// "tag:foo" alone: list the tags whose name contains foo.
+		if ($tagName !== null && $pairs === [] && $words === []) {
+			$entries = [];
 			// ISystemTagManager::getAllTags() escapes LIKE wildcards in the pattern
 			// and wraps it in its own %…% — pass the bare term (substring match).
-			$tags = $this->tagService->searchTags(trim($m[1]));
-			foreach ($tags as $tag) {
+			foreach ($this->tagService->searchTags($tagName) as $tag) {
 				$url = $this->urlGenerator->linkToRoute('files.View.index', [
-					'dir' => '/',
+					'dir'  => '/',
 					'view' => 'tag-' . $tag['id'],
 				]);
-				$entries[] = new SearchResultEntry(
-					'',
-					$tag['name'],
-					$this->l10n->t('Tag'),
-					$url,
-					'icon-tag'
-				);
+				$entries[] = new SearchResultEntry('', $tag['name'], $this->l10n->t('Tag'), $url, 'icon-tag');
 			}
 			return SearchResult::complete($this->getName(), $entries);
 		}
 
-		// Metadata value search
-		$rows = $this->tagService->searchMetadata($term, $userId);
-		$tagIds = array_unique(array_column($rows, 'tagid'));
-		$keyIds = array_unique(array_column($rows, 'keyid'));
-		$tagIndex = $this->tagService->getTagsByIds($tagIds);
-		$keyIndex = $this->tagService->getKeysByIds($keyIds);
-
-		foreach ($rows as $row) {
-			if (empty($row['path'])) {
-				continue;
+		// Files: optional tag restriction (exact name, else a single substring match).
+		$tagId = null;
+		if ($tagName !== null) {
+			$tagId = $this->tagService->getTagIdByName($tagName);
+			if ($tagId === null) {
+				$cands = $this->tagService->searchTags($tagName);
+				if (count($cands) !== 1) {
+					return SearchResult::complete($this->getName(), []);
+				}
+				$tagId = (int)$cands[0]['id'];
 			}
+		}
+
+		// One candidate set per criterion, ANDed by file id.
+		$sets = [];
+		foreach ($pairs as [$kName, $kValue]) {
+			$keyIds = $this->tagService->findKeyIdsByName($kName, $tagId);
+			if ($keyIds === []) {
+				return SearchResult::complete($this->getName(), []);
+			}
+			$rows = [];
+			foreach ($keyIds as $kid) {
+				$rows = array_merge($rows, $this->tagService->searchMetadata($kValue, $userId, $tagId, $kid));
+			}
+			$sets[] = $rows;
+		}
+		foreach ($words as $w) {
+			$sets[] = $this->tagService->searchMetadata($w, $userId, $tagId, null);
+		}
+		if ($sets === []) {
+			return SearchResult::complete($this->getName(), []);
+		}
+		$byFile = [];
+		foreach ($sets[0] as $row) {
+			if (!empty($row['path'])) {
+				$byFile[(int)$row['fileid']] = $row;
+			}
+		}
+		for ($i = 1; $i < count($sets); $i++) {
+			$keep = array_flip(array_map('intval', array_column($sets[$i], 'fileid')));
+			$byFile = array_intersect_key($byFile, $keep);
+		}
+
+		$tagIndex = $this->tagService->getTagsByIds(array_unique(array_column($byFile, 'tagid')));
+		$keyIndex = $this->tagService->getKeysByIds(array_unique(array_column($byFile, 'keyid')));
+		$entries  = [];
+		foreach ($byFile as $row) {
 			$tag = $tagIndex[$row['tagid']] ?? null;
 			$key = $keyIndex[$row['keyid']] ?? null;
 			$subline = $tag ? $tag['name'] : '';
 			if ($key) {
 				$subline .= ' › ' . $key['name'] . '=' . $row['value'];
 			}
-
-			$dir = dirname($row['path']);
 			$url = $this->urlGenerator->linkToRoute('files.View.index', [
-				'dir' => $dir,
+				'dir'      => dirname($row['path']),
 				'scrollto' => $row['name'],
 			]);
-			$entries[] = new SearchResultEntry(
-				'',
-				$row['name'],
-				$subline,
-				$url,
-				'icon-tag'
-			);
+			$entries[] = new SearchResultEntry('', $row['name'], $subline, $url, 'icon-tag');
 		}
-
 		return SearchResult::complete($this->getName(), $entries);
 	}
 }
