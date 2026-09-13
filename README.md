@@ -116,6 +116,8 @@ All OCS endpoints are under `/ocs/v2.php/apps/meta_data`. Append `?format=json` 
 
 **Tag identity by name** — Systemtag IDs are node-local. Sync operations match tags and keys by name; IDs are resolved locally after matching.
 
+**Sync versioning (v1.0.8)** — every local schema change stamps `meta_data_tag_extras.updated_at` (ms) and the push carries it plus the `origin` node; a receiver ignores snapshots not newer than the one it holds, the master never relays a snapshot back to its origin, and `(tagid, name)` is unique in `meta_data_keys` (duplicates from before are merged by migration). Background: three fields saved in parallel once produced racing snapshots that deleted two fields and duplicated one.
+
 **`systemtags:node:updated` event** — Emitted when file–tag associations change, so the Files app refreshes chips without a page reload.
 
 ## Development

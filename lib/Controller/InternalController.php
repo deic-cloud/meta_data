@@ -65,6 +65,8 @@ class InternalController extends Controller {
 		string $description = '',
 		string $keys        = '[]',
 		string $owner       = '',
+		string $updated_at  = '0',
+		string $origin      = '',
 	): JSONResponse {
 		if ($err = $this->checkSecret()) return $err;
 
@@ -76,19 +78,30 @@ class InternalController extends Controller {
 		if (!is_array($keysData)) {
 			return new JSONResponse(['message' => 'invalid keys payload'], 400);
 		}
+		$version = (int)$updated_at;
+
+		// ── Version gate: never apply a snapshot older than the one we hold ──
+		// (concurrent pushes arrive in any order; the origin's stamps are monotonic)
+		$existingId = $this->localTagIdByName($name);
+		if ($existingId !== null && $version > 0) {
+			$have = (int)($this->tagExtraMapper->findExtrasByIds([$existingId])[$existingId]['updated_at'] ?? 0);
+			if ($have >= $version) {
+				return new JSONResponse(['status' => 'stale', 'have' => $have, 'got' => $version]);
+			}
+		}
 
 		// ── Upsert system tag ─────────────────────────────────────────────────
 		$localTagId = $this->upsertSystemTag($name, $color);
 
-		// ── Upsert description ────────────────────────────────────────────────
-		$this->tagExtraMapper->upsert($localTagId, $description, $owner);
+		// ── Upsert description / owner / version ──────────────────────────────
+		$this->tagExtraMapper->upsert($localTagId, $description, $owner, $version > 0 ? $version : null);
 
 		// ── Sync keys by name ─────────────────────────────────────────────────
 		$this->syncKeys($localTagId, $keysData);
 
-		// ── Relay (master only) ───────────────────────────────────────────────
+		// ── Relay (master only), never back to the origin ─────────────────────
 		if ($this->sharding->isMaster()) {
-			$this->syncService->pushTagToAllSilos($name, $color, $description, $keysData, $owner);
+			$this->syncService->pushTagToAllSilos($name, $color, $description, $keysData, $owner, $version, $origin);
 		}
 
 		return new JSONResponse(['status' => 'ok']);
@@ -97,7 +110,7 @@ class InternalController extends Controller {
 	/** Delete a tag (and its keys/extras) identified by name. */
 	#[PublicPage]
 	#[NoCSRFRequired]
-	public function deleteTag(string $name = ''): JSONResponse {
+	public function deleteTag(string $name = '', string $origin = ''): JSONResponse {
 		if ($err = $this->checkSecret()) return $err;
 
 		if (trim($name) === '') {
@@ -114,7 +127,7 @@ class InternalController extends Controller {
 		}
 
 		if ($this->sharding->isMaster()) {
-			$this->syncService->deleteTagOnAllSilos($name);
+			$this->syncService->deleteTagOnAllSilos($name, $origin);
 		}
 
 		return new JSONResponse(['status' => 'ok']);
@@ -206,7 +219,14 @@ class InternalController extends Controller {
 				$key->setName($kName);
 				$key->setType($kType);
 				$key->setAllowedValues($kAllowed);
-				$this->keyMapper->insert($key);
+				try {
+					$this->keyMapper->insert($key);
+				} catch (\OCP\DB\Exception $e) {
+					// (tagid, name) is unique: a concurrent sync inserted it first — fine
+					if ($e->getReason() !== \OCP\DB\Exception::REASON_UNIQUE_CONSTRAINT_VIOLATION) {
+						throw $e;
+					}
+				}
 			}
 		}
 

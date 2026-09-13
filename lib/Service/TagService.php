@@ -49,6 +49,7 @@ class TagService {
 			'name'           => $tag->getName(),
 			'description'    => $e['description'],
 			'owner'          => $e['created_by'],
+			'updated_at'     => $e['updated_at'] ?? 0,
 			'color'          => $tag->getColor() ?? '',
 			'userVisible'    => $tag->isUserVisible(),
 			'userAssignable' => $tag->isUserAssignable(),
@@ -81,8 +82,14 @@ class TagService {
 
 	// ── Sync helper ──────────────────────────────────────────────────────────
 
-	/** Push the current full schema of a tag to all silos (no-op if no sync service). */
+	/**
+	 * A LOCAL change to a tag's schema: stamp a new version, then push the
+	 * full schema to the peers. Receivers ignore snapshots older than the one
+	 * they hold, so concurrent pushes cannot roll a schema back (the 2026-09-13
+	 * field-loss race); the master never echoes a snapshot to its origin.
+	 */
 	private function pushSync(int $tagId): void {
+		$this->tagExtraMapper->touch($tagId);
 		if ($this->syncService === null) return;
 		$tag = $this->getTagById($tagId);
 		if ($tag === null) return;
@@ -97,6 +104,8 @@ class TagService {
 			$tag['description'],
 			$keys,
 			$tag['owner'],
+			(int)$tag['updated_at'],
+			$this->syncService->selfUrl(),
 		);
 	}
 
@@ -248,7 +257,7 @@ class TagService {
 		$this->docKeyMapper->deleteByTagId($tagId);
 		$this->keyMapper->deleteByTagId($tagId);
 		if ($tag !== null) {
-			$this->syncService?->deleteTagOnAllSilos($tag['name']);
+			$this->syncService?->deleteTagOnAllSilos($tag['name'], $this->syncService->selfUrl());
 		}
 		return true;
 	}
@@ -281,15 +290,35 @@ class TagService {
 	}
 
 	public function newKey(int $tagId, string $keyName, string $type = '', string $allowedValues = ''): ?array {
-		if (trim($keyName) === '') {
+		$keyName = trim($keyName);
+		if ($keyName === '') {
 			return null;
+		}
+		// (tagid, name) is unique: an existing field of that name is returned as is.
+		foreach ($this->keyMapper->findByTag($tagId) as $existing) {
+			if ($existing->getName() === $keyName) {
+				return $existing->jsonSerialize();
+			}
 		}
 		$key = new MetaKey();
 		$key->setTagid($tagId);
 		$key->setName($keyName);
 		$key->setType($type);
 		$key->setAllowedValues($allowedValues);
-		$saved = $this->keyMapper->insert($key);
+		try {
+			$saved = $this->keyMapper->insert($key);
+		} catch (\OCP\DB\Exception $e) {
+			if ($e->getReason() !== \OCP\DB\Exception::REASON_UNIQUE_CONSTRAINT_VIOLATION) {
+				throw $e;
+			}
+			// lost a race with a concurrent insert of the same name — use that one
+			foreach ($this->keyMapper->findByTag($tagId) as $existing) {
+				if ($existing->getName() === $keyName) {
+					return $existing->jsonSerialize();
+				}
+			}
+			throw $e;
+		}
 		$this->pushSync($tagId);
 		return $saved->jsonSerialize();
 	}

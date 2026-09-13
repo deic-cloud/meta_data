@@ -25,14 +25,14 @@ class TagExtraMapper extends QBMapper {
 
 	/**
 	 * @param int[] $systemTagIds
-	 * @return array<int, array{description: string, created_by: string}> keyed by systemtag id
+	 * @return array<int, array{description: string, created_by: string, updated_at: int}> keyed by systemtag id
 	 */
 	public function findExtrasByIds(array $systemTagIds): array {
 		if (empty($systemTagIds)) {
 			return [];
 		}
 		$qb = $this->db->getQueryBuilder();
-		$qb->select('systemtag_id', 'description', 'created_by')->from($this->getTableName())
+		$qb->select('systemtag_id', 'description', 'created_by', 'updated_at')->from($this->getTableName())
 			->where($qb->expr()->in('systemtag_id', $qb->createNamedParameter($systemTagIds, IQueryBuilder::PARAM_INT_ARRAY)));
 		$result = $qb->executeQuery();
 		$map = [];
@@ -40,6 +40,7 @@ class TagExtraMapper extends QBMapper {
 			$map[(int)$row['systemtag_id']] = [
 				'description' => (string)$row['description'],
 				'created_by'  => (string)($row['created_by'] ?? ''),
+				'updated_at'  => (int)($row['updated_at'] ?? 0),
 			];
 		}
 		$result->closeCursor();
@@ -55,15 +56,19 @@ class TagExtraMapper extends QBMapper {
 	}
 
 	/**
-	 * Create or update the extras row. $createdBy null = leave the owner as is
-	 * (a description edit must never change ownership).
+	 * Create or update the extras row. null = leave that field as is (a
+	 * description edit must never change ownership; a local edit stamps its
+	 * own version, a synced one carries the origin's).
 	 */
-	public function upsert(int $systemTagId, string $description, ?string $createdBy = null): void {
+	public function upsert(int $systemTagId, string $description, ?string $createdBy = null, ?int $updatedAt = null): void {
 		try {
 			$extra = $this->findBySystemTagId($systemTagId);
 			$extra->setDescription($description);
 			if ($createdBy !== null) {
 				$extra->setCreatedBy($createdBy);
+			}
+			if ($updatedAt !== null) {
+				$extra->setUpdatedAt($updatedAt);
 			}
 			$this->update($extra);
 		} catch (DoesNotExistException) {
@@ -71,6 +76,7 @@ class TagExtraMapper extends QBMapper {
 			$extra->setSystemtagId($systemTagId);
 			$extra->setDescription($description);
 			$extra->setCreatedBy($createdBy ?? '');
+			$extra->setUpdatedAt($updatedAt);
 			$this->insert($extra);
 		}
 	}
@@ -83,6 +89,21 @@ class TagExtraMapper extends QBMapper {
 		} catch (DoesNotExistException) {
 			$this->upsert($systemTagId, '', $createdBy);
 		}
+	}
+
+	/** Stamp a local change: new version = now (ms), returned for the sync payload. */
+	public function touch(int $systemTagId): int {
+		$now = (int)floor(microtime(true) * 1000);
+		try {
+			$extra = $this->findBySystemTagId($systemTagId);
+			// never go backwards (clock skew after a synced newer version)
+			$now = max($now, (int)($extra->getUpdatedAt() ?? 0) + 1);
+			$extra->setUpdatedAt($now);
+			$this->update($extra);
+		} catch (DoesNotExistException) {
+			$this->upsert($systemTagId, '', '', $now);
+		}
+		return $now;
 	}
 
 	public function deleteBySystemTagId(int $systemTagId): void {

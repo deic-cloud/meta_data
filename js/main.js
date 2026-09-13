@@ -245,8 +245,16 @@
 		saveKeys(tagid, null);
 	}
 
+	// Fields are saved one after another: each save makes the server push the
+	// tag's full schema to the other nodes, and parallel pushes carrying
+	// different snapshots is how fields once got lost.
 	function saveKeys(tagid, callback) {
 		var pending = [];
+		var chain = $.Deferred().resolve();
+		function enqueue(fn) {
+			chain = chain.then(fn, fn);
+			pending.push(chain);
+		}
 		$('#meta_data_keys li').each(function() {
 			var $li = $(this);
 			var keyname = $li.find('input.edit').val().trim();
@@ -261,19 +269,23 @@
 			}
 
 			if ($li.hasClass('new')) {
-				pending.push(
-					ocsPost('tags/' + tagid + '/keys', { keyname: keyname, type: type, controlledvalues: controlled })
+				enqueue(function() {
+					return ocsPost('tags/' + tagid + '/keys', { keyname: keyname, type: type, controlledvalues: controlled })
 						.done(function(data) {
 							if (data && data.key) {
 								$li.removeClass('new').attr('id', data.key.id);
 							}
-						})
-				);
+						});
+				});
 			} else if ($li.hasClass('del')) {
-				pending.push(ocsDelete('tags/' + tagid + '/keys/' + $li.attr('id')));
+				var delId = $li.attr('id');
+				enqueue(function() { return ocsDelete('tags/' + tagid + '/keys/' + delId); });
 			} else if ($li.hasClass('alt')) {
-				pending.push(ocsPut('tags/' + tagid + '/keys/' + $li.attr('id'),
-					{ keyname: keyname, type: type, controlledvalues: controlled }));
+				var altId = $li.attr('id');
+				enqueue(function() {
+					return ocsPut('tags/' + tagid + '/keys/' + altId,
+						{ keyname: keyname, type: type, controlledvalues: controlled });
+				});
 			}
 			$li.removeClass('new alt del');
 		});

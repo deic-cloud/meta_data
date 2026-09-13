@@ -38,6 +38,8 @@ class TagSyncService {
 		string $description,
 		array  $keys,
 		string $owner = '',
+		int    $updatedAt = 0,
+		string $origin = '',
 	): void {
 		$payload = [
 			'name'        => $name,
@@ -45,8 +47,10 @@ class TagSyncService {
 			'description' => $description,
 			'keys'        => json_encode($keys),
 			'owner'       => $owner,
+			'updated_at'  => (string)$updatedAt,
+			'origin'      => $origin,
 		];
-		foreach ($this->syncTargets() as $url) {
+		foreach ($this->syncTargets($origin) as $url) {
 			if (!$this->post($url, 'internal/tags/sync', $payload)) {
 				$this->logger->error("meta_data: failed to sync tag '{$name}' to {$url}");
 			}
@@ -54,9 +58,9 @@ class TagSyncService {
 	}
 
 	/** Tell all peers to delete a tag by name. */
-	public function deleteTagOnAllSilos(string $name): void {
-		$payload = ['name' => $name];
-		foreach ($this->syncTargets() as $url) {
+	public function deleteTagOnAllSilos(string $name, string $origin = ''): void {
+		$payload = ['name' => $name, 'origin' => $origin];
+		foreach ($this->syncTargets($origin) as $url) {
 			$this->post($url, 'internal/tags/delete', $payload);
 		}
 	}
@@ -107,12 +111,34 @@ class TagSyncService {
 		}
 	}
 
-	/** @return string[] base URLs of all peers to push to */
-	private function syncTargets(): array {
+	/** This node's URL as the cluster knows it (the 'origin' of our pushes), '' if unknown. */
+	public function selfUrl(): string {
+		foreach ($this->sharding->getAllServers() as $server) {
+			if ($this->sharding->isSelf($server)) {
+				return rtrim($this->sharding->apiUrlForServer($server), '/');
+			}
+		}
+		return $this->sharding->isMaster() ? rtrim($this->sharding->masterInternalUrl(), '/') : '';
+	}
+
+	private static function authority(string $url): string {
+		$p = parse_url($url);
+		return strtolower((string)($p['host'] ?? '')) . ':' . (string)($p['port'] ?? '');
+	}
+
+	/**
+	 * @param string $excludeOrigin node the change came from — never echo a
+	 *                              snapshot back to it (it holds the newest state)
+	 * @return string[] base URLs of all peers to push to
+	 */
+	private function syncTargets(string $excludeOrigin = ''): array {
 		$urls = [];
+		$skip = $excludeOrigin !== '' ? self::authority($excludeOrigin) : null;
 		foreach ($this->sharding->getAllServers() as $server) {
 			if ($this->sharding->isSelf($server)) { continue; } // don't push to ourselves
-			$urls[] = $this->sharding->apiUrlForServer($server);
+			$url = $this->sharding->apiUrlForServer($server);
+			if ($skip !== null && self::authority($url) === $skip) { continue; }
+			$urls[] = $url;
 		}
 		if (!$this->sharding->isMaster()) {
 			$masterUrl = $this->sharding->masterInternalUrl();
