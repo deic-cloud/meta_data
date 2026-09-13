@@ -100,7 +100,7 @@
 			'</a></span></td>' +
 			'<td class="column-owner">' + ownerCell + '</td>' +
 			'<td class="column-files">' +
-			'<a href="' + OC.generateUrl('/apps/files') + '?dir=%2F&view=tag-' + tag.id + '">' +
+			'<a href="' + OC.generateUrl('/apps/files/tags/' + tag.id) + '">' +
 			(tag.size || 0) + '</a></td>' +
 			'<td class="column-actions">' +
 			(editable
