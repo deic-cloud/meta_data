@@ -47,8 +47,9 @@ http://icatproject.org/user-documentation/icat-schema/',
 		'color' => '2D7D46',
 		'description' => 'Zenodo mandatory metadata attributes. Before publishing a file or dataset to Zenodo, the file or compressed archive must be tagged with this tag and the corresponding metadata filled in.
 
-- publication_type: Only required if upload_type is',
-		'keys' => ['title', 'description', 'creators', 'upload_type', 'publication_type', 'image_type', 'publication_date', 'access_right', 'access_conditions', 'embargo_date', 'license', 'communities', 'deposition_id', 'uploaded', 'bucket', 'url'],
+- publication_type: Only required if upload_type is publication; image_type only if upload_type is image; keywords optional.
+- deposition_id, bucket, url, uploaded: bookkeeping written by the publishing app after a deposit (the Zenodo deposit to add to, its upload URL and page, whether this item\'s files are in it).',
+		'keys' => ['title', 'description', 'creators', 'upload_type', 'publication_type', 'image_type', 'publication_date', 'access_right', 'access_conditions', 'embargo_date', 'license', 'communities', 'keywords', 'deposition_id', 'uploaded', 'bucket', 'url'],
 	],
 	[
 		'name' => 'MediaCMS',
