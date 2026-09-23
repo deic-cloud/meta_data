@@ -73,7 +73,7 @@ http://icatproject.org/user-documentation/icat-schema/',
 		'name' => 'lab_notebook',
 		'color' => 'C9302C',
 		'description' => 'Laboratory notebook entry, i.e. note for a given day.',
-		'keys' => ['project', 'date'],
+		'keys' => ['project', 'date', ['name' => 'status', 'type' => 'controlled', 'allowed_values' => '["planned", "running", "done"]']],
 	],
 	[
 		'name' => 'log',
@@ -97,6 +97,10 @@ http://icatproject.org/user-documentation/icat-schema/',
 		'name' => 'todo',
 		'color' => '8A6D3B',
 		'description' => 'Todo note for Notes app',
-		'keys' => ['due', ['name' => 'priority', 'type' => '', 'allowed_values' => '["1", "2", "3"]'], ['name' => 'status', 'type' => '', 'allowed_values' => '["open", "done"]']],
+		// No 'due' or 'status': a to-do's due date and completion are Joplin's own
+		// fields, kept in the note's footer, synced to every client as they are
+		// and shown by Notes' native columns. The old service mirrored them into
+		// metadata; here that would only be a copy that can drift.
+		'keys' => [['name' => 'priority', 'type' => 'controlled', 'allowed_values' => '["low", "normal", "top"]']],
 	],
 ];
