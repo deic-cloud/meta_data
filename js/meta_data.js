@@ -540,6 +540,173 @@
 		});
 	}
 
+	// ─── Tags for several files at once ──────────────────────────────────────
+	//
+	// The details panel (and so the Metadata tab) always shows ONE file. With
+	// several files selected, the Files toolbar offers "Tags": the same tag list,
+	// applied to all of them. A box is ticked when every selected file has the
+	// tag, half-ticked when some do; clicking it gives the tag to all (or, when
+	// all have it, removes it from all). Each change goes through the same API as
+	// the tab, so files shared from another server are tagged on the owner's
+	// copy — and a refusal (read-only share) is reported per file.
+
+	var TAGS_MULTIPLE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6.5 10C7.3 10 8 9.3 8 8.5S7.3 7 6.5 7 5 7.7 5 8.5 5.7 10 6.5 10M9 6L16 13L11 18L4 11V6H9M9 4H4C2.9 4 2 4.9 2 6V11C2 11.6 2.2 12.1 2.6 12.4L9.6 19.4C9.9 19.8 10.4 20 11 20S12.1 19.8 12.4 19.4L17.4 14.4C17.8 14 18 13.5 18 13C18 12.4 17.8 11.9 17.4 11.6L10.4 4.6C10.1 4.2 9.6 4 9 4M13.5 5.7L14.5 4.7L21.4 11.6C21.8 12 22 12.5 22 13S21.8 14.1 21.4 14.4L16 19.8L15 18.8L20.7 13L13.5 5.7Z"/></svg>';
+
+	function setNodeTag(node, tagName, added) {
+		if (!node || !tagName) return;
+		if (!node.attributes) node.attributes = {};
+		var raw = node.attributes['system-tags'] && node.attributes['system-tags']['system-tag'];
+		var current = raw === undefined ? [] :
+			[].concat(raw).map(function(tg) { return typeof tg === 'string' ? tg : (tg.text || ''); })
+			.filter(function(tg) { return tg !== ''; });
+		if (added) {
+			if (current.indexOf(tagName) === -1) current.push(tagName);
+		} else {
+			current = current.filter(function(n) { return n !== tagName; });
+		}
+		node.attributes['system-tags'] = { 'system-tag': current };
+		if (window._nc_event_bus) {
+			window._nc_event_bus.emit('files:node:updated', node);
+			window._nc_event_bus.emit('systemtags:node:updated', node);
+		}
+	}
+
+	function openBulkTagDialog(nodes) {
+		var ids = nodes.map(function(n) { return n.fileid; }).filter(Boolean);
+		var dialog = document.createElement('dialog');
+		dialog.className = 'metadata-bulk-dialog';
+		dialog.style.cssText = 'position:fixed;inset:0;margin:auto;height:fit-content;width:420px;max-width:90vw;padding:20px;border:1px solid var(--color-border,#ccc);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.3);background:var(--color-main-background);color:var(--color-main-text)';
+		var $d = $(dialog);
+		$d.append($('<h3 style="margin:0 0 4px"></h3>').text(t('meta_data', 'Tags')));
+		$d.append($('<p style="margin:0 0 10px;color:var(--color-text-maxcontrast)"></p>')
+			.text(n('meta_data', 'For the selected file', 'For the %n selected files', ids.length)));
+		var $list = $('<div class="metadata-bulk-list" style="max-height:50vh;overflow:auto"></div>')
+			.text(t('meta_data', 'Loading…'));
+		var $status = $('<p class="metadata-bulk-status" style="margin:10px 0 0;min-height:1.2em;color:var(--color-text-maxcontrast)"></p>');
+		var $close = $('<button type="button" class="primary"></button>').text(t('meta_data', 'Close'));
+		$d.append($list, $status, $('<div style="display:flex;justify-content:flex-end;margin-top:12px"></div>').append($close));
+		document.body.appendChild(dialog);
+		dialog.showModal();
+		$close.on('click', function() { dialog.close(); });
+		$d.on('close', function() { dialog.remove(); });
+
+		var allTags = [];
+		var has = {};   // tagId → {fileid: true}
+		function render() {
+			$list.empty();
+			allTags.forEach(function(tag) {
+				var count = Object.keys(has[tag.id] || {}).length;
+				var $row = $('<label class="metadata-tag-row" style="display:flex;align-items:center;gap:6px;margin:4px 0;cursor:pointer"></label>');
+				var $cb = $('<input type="checkbox" style="margin:0">');
+				$cb.prop('checked', count === ids.length && count > 0);
+				$cb.prop('indeterminate', count > 0 && count < ids.length);
+				var extraStyle = colorStyle(tag.color);
+				var $chip = $('<span class="label outline label-' + colorClass(tag.color) + '" style="display:inline-block;width:auto;flex:0 0 auto' + (extraStyle ? ';' + extraStyle : '') + '"></span>')
+					.append('<i class="icon-tag" style="display:inline-block;margin-right:3px"></i>')
+					.append(document.createTextNode(tag.name));
+				$row.append($cb, $chip);
+				if (count > 0 && count < ids.length) {
+					$row.append($('<span style="color:var(--color-text-maxcontrast);font-size:.9em"></span>')
+						.text(t('meta_data', '{n} of {total}').replace('{n}', count).replace('{total}', ids.length)));
+				}
+				$cb.on('change', function(e) {
+					e.preventDefault();
+					apply(tag, !(count === ids.length));
+				});
+				$list.append($row);
+			});
+		}
+		function apply(tag, add) {
+			$list.find('input').prop('disabled', true);
+			$status.text(t('meta_data', 'Saving…'));
+			var todo = nodes.filter(function(node) {
+				var hasIt = !!(has[tag.id] || {})[node.fileid];
+				return add ? !hasIt : hasIt;
+			});
+			var failures = [];
+			var chain = $.Deferred().resolve().promise();
+			todo.forEach(function(node) {
+				chain = chain.then(function() {
+					var req = add ? ocsPut('filetags', { fileid: node.fileid, tagid: tag.id })
+						: ocsDelete('filetags', { fileid: node.fileid, tagid: tag.id });
+					return req.then(function() {
+						has[tag.id] = has[tag.id] || {};
+						if (add) { has[tag.id][node.fileid] = true; } else { delete has[tag.id][node.fileid]; }
+						setNodeTag(node, tag.name, add);
+					}, function(xhr) {
+						var msg = '';
+						try { msg = xhr.responseJSON.ocs.data.message || ''; } catch (err) {}
+						failures.push((node.basename || node.fileid) + (msg ? ': ' + msg : ''));
+						return $.Deferred().resolve().promise();   // carry on with the others
+					});
+				});
+			});
+			chain.always(function() {
+				$status.text(failures.length
+					? n('meta_data', '%n file could not be changed', '%n files could not be changed', failures.length) + ' - ' + failures.join('; ')
+					: t('meta_data', 'Saved'));
+				render();
+			});
+		}
+
+		$.when(ocsGet('tags'), ocsPost('filetags', { fileids: ids })).done(function(tagsData, fileTagsData) {
+			allTags = (tagsData && tagsData.tags) ? tagsData.tags : [];
+			((fileTagsData && fileTagsData.files) || []).forEach(function(f) {
+				(f.tags || []).forEach(function(tag) {
+					has[tag.id] = has[tag.id] || {};
+					has[tag.id][Number(f.id)] = true;   // keys compare as strings, like node.fileid
+				});
+			});
+			render();
+		}).fail(function() {
+			$list.text(t('meta_data', 'Error loading metadata'));
+		});
+	}
+
+	var BULK_ACTION = {
+		id: 'meta_data:bulk-tags',
+		displayName: function() { return t('meta_data', 'Tags'); },
+		iconSvgInline: function() { return TAGS_MULTIPLE_SVG; },
+		order: 50,
+		// Several files only: for one file, the Metadata tab in the details panel.
+		enabled: function(ctx) {
+			var nodes = (ctx && ctx.nodes) || [];
+			return nodes.length > 1 && nodes.every(function(node) { return !!node.fileid; });
+		},
+		exec: function(ctx) {
+			openBulkTagDialog((ctx && ctx.nodes) || []);
+			return Promise.resolve(null);
+		},
+		execBatch: function(ctx) {
+			var nodes = (ctx && ctx.nodes) || [];
+			openBulkTagDialog(nodes);
+			return Promise.resolve(nodes.map(function() { return null; }));
+		},
+	};
+
+	var _bulkRegistered = false;
+	function tryRegisterBulkAction(attemptsLeft) {
+		if (_bulkRegistered) return;
+		var root = window._nc_files_scope;
+		var keys = root ? Object.keys(root) : [];
+		for (var i = 0; i < keys.length; i++) {
+			var scope = root[keys[i]];
+			if (!scope || typeof scope !== 'object') continue;
+			scope.fileActions = scope.fileActions || new Map();
+			if (!scope.fileActions.has(BULK_ACTION.id)) {
+				scope.fileActions.set(BULK_ACTION.id, BULK_ACTION);
+				// The Files app re-reads the actions on this event.
+				if (scope.registry && typeof scope.registry.dispatchEvent === 'function') {
+					scope.registry.dispatchEvent(new CustomEvent('register:action', { detail: BULK_ACTION }));
+				}
+			}
+			_bulkRegistered = true;
+		}
+		if (!_bulkRegistered && attemptsLeft > 0) {
+			setTimeout(function() { tryRegisterBulkAction(attemptsLeft - 1); }, 250);
+		}
+	}
+
 	// ─── Bootstrap ───────────────────────────────────────────────────────────
 
 	defineCustomElement();
@@ -547,9 +714,11 @@
 	// Register immediately when script loads — same pattern as Sharing/Activity/etc.
 	// This ensures the tab is present before Vue renders the sidebar on opendetails=true.
 	tryRegisterSidebarTab(40);
+	tryRegisterBulkAction(40);
 
 	$(document).ready(function() {
 		tryRegisterSidebarTab(40);
+		tryRegisterBulkAction(40);
 		if (window._nc_event_bus) {
 			window._nc_event_bus.subscribe('files:list:updated', function(event) {
 				preloadFolderTags(event && event.contents);
