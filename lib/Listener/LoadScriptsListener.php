@@ -17,6 +17,8 @@ class LoadScriptsListener implements IEventListener {
 		}
 		Util::addScript('meta_data', 'jquery.min');
 		Util::addScript('meta_data', 'meta_data');
+		// One place for tags (the Metadata tab): switch off core's other two.
+		Util::addScript('meta_data', 'hide-core-tag-actions');
 		Util::addStyle('meta_data', 'meta_data');
 	}
 }
