@@ -260,6 +260,27 @@ class InternalController extends Controller {
 	}
 
 	/**
+	 * Add (op=add) or remove (op=remove) a tag, by name, on a file identified by
+	 * share token and internal path — the tag write-through for a sharee on
+	 * another node (TagService::addFileTag). Refused unless the share allows editing.
+	 */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function setFileTagByToken(string $token = '', string $path = '', string $tag = '', string $op = 'add'): JSONResponse {
+		$check = $this->checkSecret();
+		if ($check !== null) {
+			return $check;
+		}
+		if ($token === '' || $tag === '' || !in_array($op, ['add', 'remove'], true)) {
+			return new JSONResponse(['success' => false, 'message' => 'missing parameter'], 400);
+		}
+		$why = $this->tagService->setFileTagByShareToken($token, $path, $tag, $op);
+		return $why === null
+			? new JSONResponse(['success' => true])
+			: new JSONResponse(['success' => false, 'message' => $why], 403);
+	}
+
+	/**
 	 * Set a metadata value on a file identified by share token and internal
 	 * path — the write-through for a sharee on another node (TagService::
 	 * updateFileKey). Refused unless the share allows editing.

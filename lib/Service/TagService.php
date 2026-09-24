@@ -661,11 +661,26 @@ class TagService {
 		}
 	}
 
-	public function addFileTag(int $fileId, int $tagId): void {
+	/**
+	 * Tag a file. For a file in a share $userId received from another node the
+	 * tag is set on the OWNER's node (by share token, tag by name) — where
+	 * everyone the file is shared with reads it — and refused there unless the
+	 * share allows editing; never a local-only assignment for such a file.
+	 *
+	 * @throws \RuntimeException when the owner's node refuses or cannot be reached
+	 */
+	public function addFileTag(int $fileId, int $tagId, string $userId = ''): void {
+		if ($this->tagThroughOwner($fileId, $tagId, $userId, 'add')) {
+			return;
+		}
 		$this->systemTagObjectMapper->assignTags((string)$fileId, 'files', [$tagId]);
 	}
 
-	public function removeFileTag(int $fileId, int $tagId): void {
+	/** Untag a file; for a file shared from another node, on the owner's node (see addFileTag). */
+	public function removeFileTag(int $fileId, int $tagId, string $userId = ''): void {
+		if ($this->tagThroughOwner($fileId, $tagId, $userId, 'remove')) {
+			return;
+		}
 		$this->systemTagObjectMapper->unassignTags((string)$fileId, 'files', [$tagId]);
 	}
 
@@ -743,15 +758,42 @@ class TagService {
 	}
 
 	/**
-	 * Owner's node: set a value on the file at $internalPath inside the share
-	 * with $token, if that share allows editing. Tag and key by NAME (numeric
-	 * ids differ between nodes).
+	 * Add/remove a tag on the owner's node when $fileId is in a share $userId
+	 * received from another node. False = not such a file (caller acts locally).
 	 *
-	 * @return string|null null = done; otherwise why not
+	 * @throws \RuntimeException refused or unreachable
 	 */
-	public function updateFileKeyByShareToken(string $token, string $internalPath, string $tagName, string $keyName, string $value): ?string {
+	private function tagThroughOwner(int $fileId, int $tagId, string $userId, string $op): bool {
+		$loc = $userId !== '' ? $this->federatedLocation($fileId, $userId) : null;
+		if ($loc === null) {
+			return false;
+		}
+		$tag = $this->getTagById($tagId);
+		if ($tag === null) {
+			throw new \RuntimeException('Unknown tag');
+		}
+		$body = $this->callOwner($loc['remote'], 'internal/filetag-by-token', [
+			'token' => $loc['token'], 'path' => $loc['path'], 'tag' => (string)$tag['name'], 'op' => $op,
+		]);
+		if (!is_array($body) || empty($body['success'])) {
+			throw new \RuntimeException((string)($body['message'] ?? 'The owner\'s server did not accept the change'));
+		}
+		// A local assignment (made before write-through existed) would shadow the owner's.
+		try {
+			$this->systemTagObjectMapper->unassignTags((string)$fileId, 'files', [$tagId]);
+		} catch (\Throwable) {
+		}
+		return true;
+	}
+
+	/**
+	 * Owner's node: the file at $internalPath inside the share with $token, if
+	 * that share allows editing. Null + $why otherwise.
+	 */
+	private function nodeByShareTokenForEdit(string $token, string $internalPath, ?string &$why): ?\OCP\Files\Node {
 		if ($this->db === null) {
-			return 'Not available';
+			$why = 'Not available';
+			return null;
 		}
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('uid_owner', 'item_source', 'permissions')
@@ -759,19 +801,63 @@ class TagService {
 			->where($qb->expr()->eq('token', $qb->createNamedParameter($token)));
 		$row = $qb->executeQuery()->fetch();
 		if (!$row) {
-			return 'Share not found';
+			$why = 'Share not found';
+			return null;
 		}
 		if (((int)$row['permissions'] & \OCP\Constants::PERMISSION_UPDATE) === 0) {
-			return 'The share does not allow editing';
+			$why = 'The share does not allow editing';
+			return null;
 		}
 		try {
 			$shareNode = $this->rootFolder->getUserFolder((string)$row['uid_owner'])->getFirstNodeById((int)$row['item_source']);
 			if ($shareNode === null) {
-				return 'Shared item not found';
+				$why = 'Shared item not found';
+				return null;
 			}
-			$node = ($internalPath !== '' && $internalPath !== '.') ? $shareNode->get($internalPath) : $shareNode;
+			return ($internalPath !== '' && $internalPath !== '.') ? $shareNode->get($internalPath) : $shareNode;
 		} catch (\Throwable) {
-			return 'File not found';
+			$why = 'File not found';
+			return null;
+		}
+	}
+
+	/**
+	 * Owner's node: add/remove tag $tagName (by name — ids differ between nodes;
+	 * the tag must exist here, schemas are synced) on the file at $internalPath
+	 * in the share with $token, if the share allows editing.
+	 *
+	 * @return string|null null = done; otherwise why not
+	 */
+	public function setFileTagByShareToken(string $token, string $internalPath, string $tagName, string $op): ?string {
+		$why = null;
+		$node = $this->nodeByShareTokenForEdit($token, $internalPath, $why);
+		if ($node === null) {
+			return $why;
+		}
+		$tagId = $this->getTagIdByName($tagName);
+		if ($tagId === null) {
+			return 'Unknown tag ' . $tagName;
+		}
+		if ($op === 'remove') {
+			$this->systemTagObjectMapper->unassignTags((string)$node->getId(), 'files', [$tagId]);
+		} else {
+			$this->systemTagObjectMapper->assignTags((string)$node->getId(), 'files', [$tagId]);
+		}
+		return null;
+	}
+
+	/**
+	 * Owner's node: set a value on the file at $internalPath inside the share
+	 * with $token, if that share allows editing. Tag and key by NAME (numeric
+	 * ids differ between nodes).
+	 *
+	 * @return string|null null = done; otherwise why not
+	 */
+	public function updateFileKeyByShareToken(string $token, string $internalPath, string $tagName, string $keyName, string $value): ?string {
+		$why = null;
+		$node = $this->nodeByShareTokenForEdit($token, $internalPath, $why);
+		if ($node === null) {
+			return $why;
 		}
 		$tagId = $this->getTagIdByName($tagName);
 		$keyId = $tagId !== null ? $this->getKeyIdByName($tagId, $keyName) : null;

@@ -9,6 +9,7 @@ return [
 		['name' => 'internal#deleteTag',         'url' => '/internal/tags/delete',         'verb' => 'POST'],
 		['name' => 'internal#getFileTagsByToken', 'url' => '/internal/filetags-by-token',  'verb' => 'POST'],
 		['name' => 'internal#setFileKeyByToken',  'url' => '/internal/filekey-by-token',   'verb' => 'POST'],
+		['name' => 'internal#setFileTagByToken',  'url' => '/internal/filetag-by-token',   'verb' => 'POST'],
 	],
 	'ocs' => [
 		// Tags

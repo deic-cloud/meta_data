@@ -47,6 +47,16 @@
 			.then(function(r) { return r.ocs.data; });
 	}
 
+	/** Show the server's reason for a refused request (OCS message), else $fallback. */
+	function showFailure(xhr, fallback) {
+		var msg = fallback;
+		try {
+			var j = xhr && xhr.responseJSON;
+			if (j && j.ocs && j.ocs.data && j.ocs.data.message) { msg = j.ocs.data.message; }
+		} catch (e) {}
+		if (window.OC && OC.Notification && OC.Notification.showTemporary) { OC.Notification.showTemporary(msg); }
+	}
+
 	function ocsDelete(endpoint, data) {
 		return $.ajax({ url: apiUrl(endpoint), type: 'DELETE', data: data || {}, dataType: 'json' })
 			.then(function(r) { return r.ocs.data; });
@@ -165,16 +175,22 @@
 			for (var i = 0; i < allTags.length; i++) {
 				if (allTags[i].id === tagId) { tagName = allTags[i].name; break; }
 			}
+			// A refusal (e.g. a read-only share from another server) comes back
+			// with its reason; show it and re-render so the box shows the truth.
+			var failed = function(xhr) {
+				showFailure(xhr, t('meta_data', 'The tag could not be changed'));
+				loadAndRenderPanel(el, fileId);
+			};
 			if ($(this).is(':checked')) {
 				ocsPut('filetags', { fileid: fid, tagid: tagId }).done(function() {
 					notifyFilesApp(el, tagName, true);
 					loadAndRenderPanel(el, fileId);
-				});
+				}).fail(failed);
 			} else {
 				ocsDelete('filetags', { fileid: fid, tagid: tagId }).done(function() {
 					notifyFilesApp(el, tagName, false);
 					loadAndRenderPanel(el, fileId);
-				});
+				}).fail(failed);
 			}
 		});
 
@@ -278,7 +294,8 @@
 				var keyId = $v.data('keyid');
 				var val   = $v.val();
 				if (keyId !== undefined) {
-					ocsPost('filemeta', { fileid: fileId, tagid: tagId, keyid: keyId, value: val });
+					ocsPost('filemeta', { fileid: fileId, tagid: tagId, keyid: keyId, value: val })
+						.fail(function(xhr) { showFailure(xhr, t('meta_data', 'The value could not be saved')); });
 				}
 			});
 			dialog.close();

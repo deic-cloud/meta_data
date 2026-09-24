@@ -10,6 +10,8 @@ Authors: Christian Brinch, DTU and Frederik Orellana, DTU (frederik@orellana.dk)
 
 Tags appear as chips in the Files app sidebar and file list (via `systemtags:node:updated`). In a ScienceData sharded deployment with `files_sharding`, tag schemas are propagated across nodes so that federated-share files carry the same tags on every node. Tag identity across nodes is resolved by name, not by systemtag ID (IDs differ per node).
 
+**Tags and metadata values of shared files live with the owner.** Tags work the same way as values below: for a file in a share received from another node, tags are read from the owner's node whatever is local (`ApiController::getFileTags` → `getRemoteFileTags`), and adding/removing a tag (`TagService::addFileTag/removeFileTag` with the user) is done on the owner's node via `internal/filetag-by-token`, refused unless the share allows editing; the sidebar shows the reason and re-renders. Nextcloud's own tag UI in the Files sidebar (core systemtags) is not covered: it assigns locally.
+
 **Metadata values of shared files live with the owner.** A file's values are stored on the node of its owner, against the owner's file id. For a file in a share received from another node, the owner's node is authoritative both ways: values are read through by share token (`TagService::getFileKeysFor`, `getRemoteFileKeys`), and values are written through (`TagService::updateFileKey` with the user → `internal/filekey-by-token` on the owner's node), so the owner and everyone else the file is shared with see the same values. The owner's node refuses writes through a share without edit permission; there is never a local fallback for such a file, since a value only the writer could see would silently diverge. Callers pass the acting user (`updateFileKey($fileId, $tagId, $keyId, $value, $userId)`); without it the write is local, as before.
 
 ## Ownership of tags (schemas)
@@ -123,6 +125,7 @@ All OCS endpoints are under `/ocs/v2.php/apps/meta_data`. Append `?format=json` 
 | `POST` | `/internal/tags/delete` | Delete tag schema by name. |
 | `POST` | `/internal/filetags-by-token` | Tags for a file identified by federated share token (DB-only, avoids DAV lazy-loading issue). |
 | `POST` | `/internal/filekey-by-token` | Set a metadata value on a file identified by federated share token + path, tag and key by name; refused (403, with the reason) unless the share allows editing. The write-through for sharees on other nodes. |
+| `POST` | `/internal/filetag-by-token` | Add (`op=add`) or remove (`op=remove`) a tag, by name, on a file identified by federated share token + path; refused (403, with the reason) unless the share allows editing. The tag write-through for sharees on other nodes. |
 
 ## Architecture notes
 

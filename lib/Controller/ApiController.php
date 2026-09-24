@@ -273,13 +273,12 @@ class ApiController extends OCSController {
 		$uniqueIds = array_unique($ids);
 		$fileTags = $this->tagService->getFileTags($uniqueIds);
 
-		// For files with no local tags, check if they live on a remote (federated) mount
+		// A file in a share received from another node: its tags are the OWNER's
+		// (tags are written through to the owner's node), whatever is local.
 		foreach ($uniqueIds as $fileId) {
-			if (empty($fileTags[$fileId])) {
-				$remoteTags = $this->tagService->getRemoteFileTags($fileId, $userId);
-				if ($remoteTags !== null && !empty($remoteTags)) {
-					$fileTags[$fileId] = $remoteTags;
-				}
+			$remoteTags = $this->tagService->getRemoteFileTags($fileId, $userId);
+			if ($remoteTags !== null) {
+				$fileTags[$fileId] = $remoteTags;
 			}
 		}
 
@@ -302,7 +301,11 @@ class ApiController extends OCSController {
 		if ($fid === null || $tid === null) {
 			return new DataResponse(['message' => 'File or tag not found'], 404);
 		}
-		$this->tagService->addFileTag($fid, $tid);
+		try {
+			$this->tagService->addFileTag($fid, $tid, $this->userId());
+		} catch (\RuntimeException $e) {
+			return new DataResponse(['message' => $e->getMessage()], 403);
+		}
 		return new DataResponse(['success' => true]);
 	}
 
@@ -318,7 +321,11 @@ class ApiController extends OCSController {
 		if ($fid === null || $tid === null) {
 			return new DataResponse(['message' => 'File or tag not found'], 404);
 		}
-		$this->tagService->removeFileTag($fid, $tid);
+		try {
+			$this->tagService->removeFileTag($fid, $tid, $this->userId());
+		} catch (\RuntimeException $e) {
+			return new DataResponse(['message' => $e->getMessage()], 403);
+		}
 		return new DataResponse(['success' => true]);
 	}
 
