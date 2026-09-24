@@ -8,6 +8,7 @@ return [
 		['name' => 'internal#syncTag',           'url' => '/internal/tags/sync',           'verb' => 'POST'],
 		['name' => 'internal#deleteTag',         'url' => '/internal/tags/delete',         'verb' => 'POST'],
 		['name' => 'internal#getFileTagsByToken', 'url' => '/internal/filetags-by-token',  'verb' => 'POST'],
+		['name' => 'internal#setFileKeyByToken',  'url' => '/internal/filekey-by-token',   'verb' => 'POST'],
 	],
 	'ocs' => [
 		// Tags

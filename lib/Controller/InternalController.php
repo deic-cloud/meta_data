@@ -258,4 +258,25 @@ class InternalController extends Controller {
 
 		return new JSONResponse(['tags' => $tags]);
 	}
+
+	/**
+	 * Set a metadata value on a file identified by share token and internal
+	 * path — the write-through for a sharee on another node (TagService::
+	 * updateFileKey). Refused unless the share allows editing.
+	 */
+	#[PublicPage]
+	#[NoCSRFRequired]
+	public function setFileKeyByToken(string $token = '', string $path = '', string $tag = '', string $key = '', string $value = ''): JSONResponse {
+		$check = $this->checkSecret();
+		if ($check !== null) {
+			return $check;
+		}
+		if ($token === '' || $tag === '' || $key === '') {
+			return new JSONResponse(['success' => false, 'message' => 'missing parameter'], 400);
+		}
+		$why = $this->tagService->updateFileKeyByShareToken($token, $path, $tag, $key, $value);
+		return $why === null
+			? new JSONResponse(['success' => true])
+			: new JSONResponse(['success' => false, 'message' => $why], 403);
+	}
 }

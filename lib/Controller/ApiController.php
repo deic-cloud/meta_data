@@ -374,15 +374,8 @@ class ApiController extends OCSController {
 		if ($fid === null || $tid === null) {
 			return new DataResponse([], 404);
 		}
-		$keys = $this->tagService->getFileKeys($fid, $tid);
-		if ($keys === []) {
-			// Federated file? Values live on the owner's node — read through by
-			// share token (the same mechanism tags already use).
-			$remote = $this->tagService->getRemoteFileKeys($fid, $this->userId(), $tid);
-			if (is_array($remote)) {
-				$keys = $remote;
-			}
-		}
+		// For a file shared from another node, the owner's node holds the values.
+		$keys = $this->tagService->getFileKeysFor($fid, $tid, $this->userId());
 		return new DataResponse(['data' => $keys]);
 	}
 
@@ -449,7 +442,11 @@ class ApiController extends OCSController {
 		if ($fid === null || $tid === null || $kid === null) {
 			return new DataResponse(['message' => 'File, tag, or attribute not found'], 404);
 		}
-		$this->tagService->updateFileKey($fid, $tid, $kid, $value);
+		try {
+			$this->tagService->updateFileKey($fid, $tid, $kid, $value, $this->userId());
+		} catch (\RuntimeException $e) {
+			return new DataResponse(['message' => $e->getMessage()], 403);
+		}
 		return new DataResponse(['success' => true]);
 	}
 }

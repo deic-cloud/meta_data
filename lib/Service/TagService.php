@@ -549,12 +549,30 @@ class TagService {
 	 * secret unset / remote unreachable.
 	 */
 	private function fetchRemoteTagData(int $fileId, string $userId): ?array {
-		if ($this->config === null || $this->clientService === null || $this->db === null) {
+		$loc = $this->federatedLocation($fileId, $userId);
+		if ($loc === null) {
 			return null;
 		}
+		$body = $this->callOwner($loc['remote'], 'internal/filetags-by-token', ['token' => $loc['token'], 'path' => $loc['path']]);
+		if (!is_array($body) || !isset($body['tags'])) {
+			return null;
+		}
+		return is_array($body['tags']) ? $body['tags'] : [];
+	}
 
-		$secret = (string)$this->config->getSystemValue('files_sharding_shared_secret', '');
-		if ($secret === '') {
+	/**
+	 * Where a file of $userId's lives when it is in a share they received from
+	 * another node: the owner node's URL, the share token and the path inside
+	 * the share. Null for anything else (their own files, local shares) or when
+	 * no shared secret is configured.
+	 *
+	 * @return array{remote: string, token: string, path: string}|null
+	 */
+	public function federatedLocation(int $fileId, string $userId): ?array {
+		if ($userId === '' || $this->config === null || $this->clientService === null || $this->db === null) {
+			return null;
+		}
+		if ((string)$this->config->getSystemValue('files_sharding_shared_secret', '') === '') {
 			return null;
 		}
 
@@ -612,28 +630,35 @@ class TagService {
 		if ($remote === null || $token === null) {
 			return null;
 		}
+		return ['remote' => $remote, 'token' => $token, 'path' => $internalPath];
+	}
 
-		$url = $remote . '/index.php/apps/meta_data/internal/filetags-by-token';
-
+	/** POST to the owner node's meta_data internal API (shared-secret). Null on any failure. */
+	private function callOwner(string $remote, string $path, array $json): ?array {
+		$secret = (string)($this->config?->getSystemValue('files_sharding_shared_secret', '') ?? '');
+		if ($secret === '' || $this->clientService === null) {
+			return null;
+		}
 		try {
-			$client   = $this->clientService->newClient();
-			$response = $client->post($url, [
-				'json'    => ['token' => $token, 'path' => $internalPath],
+			$response = $this->clientService->newClient()->post($remote . '/index.php/apps/meta_data/' . $path, [
+				'json'    => $json,
 				'headers' => ['Authorization' => 'Bearer ' . $secret],
 				'timeout' => 5,
 				'connect_timeout' => 3,
 				'verify'  => true,
 			]);
 			$body = json_decode((string)$response->getBody(), true);
-			if (!is_array($body) || !isset($body['tags'])) {
-				return null;
-			}
+			return is_array($body) ? $body : null;
 		} catch (\Throwable $e) {
-			$this->logger->debug('meta_data: remote tag lookup failed for file ' . $fileId . ': ' . $e->getMessage());
+			// A refusal (4xx) carries its reason in the body.
+			$resp = method_exists($e, 'getResponse') ? $e->getResponse() : null;
+			$body = $resp !== null ? json_decode((string)$resp->getBody(), true) : null;
+			if (is_array($body)) {
+				return $body;
+			}
+			$this->logger->debug('meta_data: ' . $path . ' at ' . $remote . ' failed: ' . $e->getMessage());
 			return null;
 		}
-
-		return is_array($body['tags']) ? $body['tags'] : [];
 	}
 
 	public function addFileTag(int $fileId, int $tagId): void {
@@ -674,8 +699,87 @@ class TagService {
 		return $this->docKeyMapper->findByFileAndTag($fileId, $tagId);
 	}
 
-	public function updateFileKey(int $fileId, int $tagId, int $keyId, string $value): void {
-		$this->docKeyMapper->upsert($fileId, $tagId, $keyId, $value);
+	/**
+	 * A file's values as $userId sees them: for a file in a share received from
+	 * another node, the OWNER's values (the only copy); otherwise this node's.
+	 *
+	 * @return array{keyid: int, value: string}[]
+	 */
+	public function getFileKeysFor(int $fileId, int $tagId, string $userId): array {
+		$remote = $this->getRemoteFileKeys($fileId, $userId, $tagId);
+		return is_array($remote) ? $remote : $this->getFileKeys($fileId, $tagId);
+	}
+
+	/**
+	 * Set a value. For a file in a share $userId received from another node the
+	 * value is written on the OWNER's node (by share token, key by name), so the
+	 * owner and everyone else the file is shared with see it; the owner's node
+	 * refuses unless the share allows editing. Never falls back to a local
+	 * write for such a file — a copy only the writer could see is worse than an
+	 * error.
+	 *
+	 * @throws \RuntimeException when the owner's node refuses or cannot be reached
+	 */
+	public function updateFileKey(int $fileId, int $tagId, int $keyId, string $value, string $userId = ''): void {
+		$loc = $userId !== '' ? $this->federatedLocation($fileId, $userId) : null;
+		if ($loc === null) {
+			$this->docKeyMapper->upsert($fileId, $tagId, $keyId, $value);
+			return;
+		}
+		$tag = $this->getTagById($tagId);
+		$key = $this->getKeyById($keyId);
+		if ($tag === null || $key === null) {
+			throw new \RuntimeException('Unknown tag or field');
+		}
+		$body = $this->callOwner($loc['remote'], 'internal/filekey-by-token', [
+			'token' => $loc['token'], 'path' => $loc['path'],
+			'tag' => (string)$tag['name'], 'key' => (string)$key['name'], 'value' => $value,
+		]);
+		if (!is_array($body) || empty($body['success'])) {
+			throw new \RuntimeException((string)($body['message'] ?? 'The owner\'s server did not accept the change'));
+		}
+		// A local copy (written before write-through existed) would only mislead.
+		$this->docKeyMapper->deleteByFileAndTag($fileId, $tagId);
+	}
+
+	/**
+	 * Owner's node: set a value on the file at $internalPath inside the share
+	 * with $token, if that share allows editing. Tag and key by NAME (numeric
+	 * ids differ between nodes).
+	 *
+	 * @return string|null null = done; otherwise why not
+	 */
+	public function updateFileKeyByShareToken(string $token, string $internalPath, string $tagName, string $keyName, string $value): ?string {
+		if ($this->db === null) {
+			return 'Not available';
+		}
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('uid_owner', 'item_source', 'permissions')
+			->from('share')
+			->where($qb->expr()->eq('token', $qb->createNamedParameter($token)));
+		$row = $qb->executeQuery()->fetch();
+		if (!$row) {
+			return 'Share not found';
+		}
+		if (((int)$row['permissions'] & \OCP\Constants::PERMISSION_UPDATE) === 0) {
+			return 'The share does not allow editing';
+		}
+		try {
+			$shareNode = $this->rootFolder->getUserFolder((string)$row['uid_owner'])->getFirstNodeById((int)$row['item_source']);
+			if ($shareNode === null) {
+				return 'Shared item not found';
+			}
+			$node = ($internalPath !== '' && $internalPath !== '.') ? $shareNode->get($internalPath) : $shareNode;
+		} catch (\Throwable) {
+			return 'File not found';
+		}
+		$tagId = $this->getTagIdByName($tagName);
+		$keyId = $tagId !== null ? $this->getKeyIdByName($tagId, $keyName) : null;
+		if ($tagId === null || $keyId === null) {
+			return 'Unknown tag or field';
+		}
+		$this->docKeyMapper->upsert((int)$node->getId(), $tagId, $keyId, $value);
+		return null;
 	}
 
 	// ── Cleanup ───────────────────────────────────────────────────────────────
