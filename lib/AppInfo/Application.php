@@ -38,7 +38,10 @@ class Application extends App implements IBootstrap {
 		$context->registerSearchProvider(MetaDataSearchProvider::class);
 
 		$context->registerService(IShardingAdapter::class, function (ContainerInterface $c): IShardingAdapter {
-			if ($c->get(IAppManager::class)->isInstalled('files_sharding')) {
+			// isInstalled() is also true for a DISABLED app, whose classes do not
+			// load — check the class too, so meta_data falls back to standalone.
+			if ($c->get(IAppManager::class)->isEnabledForAnyone('files_sharding')
+				&& class_exists(\OCA\FilesSharding\Service\ShardingService::class)) {
 				return new FilesShardingAdapter(
 					$c->get(\OCA\FilesSharding\Service\ShardingService::class)
 				);
