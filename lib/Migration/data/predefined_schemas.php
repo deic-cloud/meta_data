@@ -52,6 +52,15 @@ http://icatproject.org/user-documentation/icat-schema/',
 		'keys' => ['title', 'description', 'creators', 'upload_type', 'publication_type', 'image_type', 'publication_date', 'access_right', 'access_conditions', 'embargo_date', 'license', 'communities', 'keywords', 'deposition_id', 'uploaded', 'bucket', 'url'],
 	],
 	[
+		'name' => 'DataCite',
+		'color' => '1B456D',
+		'description' => 'DOI registered with DataCite for an item that stays on this service ("Assign DOI…" in Files). The DOI points at the item\'s landing page in the public catalogue, which finds the item by the doi field — do not remove this tag from an item with a DOI.
+
+- title, creators, description, resource_type, license, keywords: the DataCite record (creators as JSON, resource_type = DataCite resourceTypeGeneral, license = SPDX id).
+- doi, url, date: written by the publishing app (the DOI, its landing page, when it was assigned).',
+		'keys' => ['title', 'creators', 'description', 'resource_type', 'license', 'keywords', 'doi', 'url', 'date'],
+	],
+	[
 		'name' => 'MediaCMS',
 		'color' => '1B456D',
 		'description' => 'Metadata for publishing to a MediaCMS service.',
