@@ -9,8 +9,10 @@ use OCA\MetaData\Db\DocKeyMapper;
 use OCA\MetaData\Db\MetaKey;
 use OCA\MetaData\Db\MetaKeyMapper;
 use OCA\MetaData\Db\TagExtraMapper;
+use OCA\MetaData\Event\FileMetadataChangedEvent;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\DB\QueryBuilder\IQueryBuilder;
+use OCP\EventDispatcher\IEventDispatcher;
 use OCP\Files\IRootFolder;
 use OCP\Files\Node;
 use OCP\Http\Client\IClientService;
@@ -36,6 +38,7 @@ class TagService {
 		private ?IConfig $config = null,
 		private ?IClientService $clientService = null,
 		private ?IDBConnection $db = null,
+		private ?IEventDispatcher $dispatcher = null,
 	) {
 	}
 
@@ -739,6 +742,7 @@ class TagService {
 		$loc = $userId !== '' ? $this->federatedLocation($fileId, $userId) : null;
 		if ($loc === null) {
 			$this->docKeyMapper->upsert($fileId, $tagId, $keyId, $value);
+			$this->dispatcher?->dispatchTyped(new FileMetadataChangedEvent($fileId));
 			return;
 		}
 		$tag = $this->getTagById($tagId);
@@ -755,6 +759,7 @@ class TagService {
 		}
 		// A local copy (written before write-through existed) would only mislead.
 		$this->docKeyMapper->deleteByFileAndTag($fileId, $tagId);
+		$this->dispatcher?->dispatchTyped(new FileMetadataChangedEvent($fileId));
 	}
 
 	/**
@@ -865,6 +870,7 @@ class TagService {
 			return 'Unknown tag or field';
 		}
 		$this->docKeyMapper->upsert((int)$node->getId(), $tagId, $keyId, $value);
+		$this->dispatcher?->dispatchTyped(new FileMetadataChangedEvent((int)$node->getId()));
 		return null;
 	}
 
