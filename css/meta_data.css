@@ -411,3 +411,8 @@ span.deletekey:hover {
 #import-fields { margin-top: 16px; }
 #import-fields .import-row { display: flex; gap: 8px; align-items: center; }
 #import-fields .import-row input { flex: 1; }
+
+/* Tag chips in the file list open the Metadata tab (js/meta_data.js) */
+.files-list__row-action-system-tags .files-list__system-tag {
+	cursor: pointer;
+}

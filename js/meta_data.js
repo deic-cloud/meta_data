@@ -707,6 +707,36 @@
 		}
 	}
 
+	// ─── Tag chips in the file list open the Metadata tab ───────────────────
+	//
+	// The chips are core's inline "system-tags" action; the file list gives inline
+	// actions no click handler, so a click on them fell through to the row and
+	// opened the file. Like the sharing icon (which opens the Sharing tab), a click
+	// on the chips now opens the details panel on the Metadata tab. The Files app
+	// is Vue 2: the chips' element carries its component as __vue__, whose `source`
+	// prop is the row's node; OCA.Files._sidebar() is the store getSidebar() wraps.
+
+	function bindTagChipClicks() {
+		var isPublic = false;
+		try { isPublic = !!(window.OCP && OCP.InitialState && OCP.InitialState.loadState('files_sharing', 'isPublic', false)); } catch (err) {}
+		if (isPublic) return;  // public share pages have no details panel
+		document.addEventListener('click', function(e) {
+			var el = e.target && e.target.closest && e.target.closest('.files-list__row-action-system-tags');
+			if (!el || !el.querySelector('.files-list__system-tag')) return;  // no chips: leave the click alone
+			var vm = el.__vue__;
+			var node = vm && (vm.source || (vm.$props && vm.$props.source));
+			var sidebar = window.OCA && OCA.Files && typeof OCA.Files._sidebar === 'function' ? OCA.Files._sidebar() : null;
+			if (!node || !sidebar || typeof sidebar.open !== 'function') return;
+			e.preventDefault();
+			e.stopPropagation();
+			try {
+				sidebar.open(node, 'metadata');
+			} catch (err) {
+				console.warn('meta_data: could not open the Metadata tab', err);
+			}
+		}, true);
+	}
+
 	// ─── Bootstrap ───────────────────────────────────────────────────────────
 
 	defineCustomElement();
@@ -717,6 +747,7 @@
 	tryRegisterBulkAction(40);
 
 	$(document).ready(function() {
+		bindTagChipClicks();
 		tryRegisterSidebarTab(40);
 		tryRegisterBulkAction(40);
 		if (window._nc_event_bus) {
