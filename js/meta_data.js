@@ -220,14 +220,21 @@
 	}
 
 	function showKeyDialog(fileId, tagId, tagName, keys, fileVals, editable) {
+		var autosize = function(el) {
+			el.style.height = 'auto';
+			el.style.height = (el.scrollHeight + 2) + 'px';  // max-height caps it; beyond that it scrolls
+		};
 		var dialog = document.createElement('dialog');
-		dialog.style.cssText = 'width:480px;padding:20px;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.3)';
+		// Wide enough to edit a summary in place, and resizable by its corner; the
+		// field list scrolls so Save/Cancel stay in view.
+		dialog.style.cssText = 'width:min(720px,92vw);max-width:96vw;max-height:90vh;resize:both;overflow:hidden;' +
+			'flex-direction:column;padding:20px;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.3)';
 
-		var $list = $('<ul class="metadata-key-list" style="list-style:none;padding:0;margin:0"></ul>');
+		var $list = $('<ul class="metadata-key-list" style="list-style:none;padding:0;margin:0;overflow:auto;flex:1 1 auto;min-height:0"></ul>');
 
 		keys.forEach(function(key) {
-			var $li = $('<li style="margin:4px 0;display:flex;gap:6px;align-items:center"></li>');
-			$li.append('<span style="flex:0 0 120px;overflow:hidden;text-overflow:ellipsis">' +
+			var $li = $('<li style="margin:4px 0;display:flex;gap:6px;align-items:flex-start"></li>');
+			$li.append('<span style="flex:0 0 120px;overflow:hidden;text-overflow:ellipsis;padding-top:6px">' +
 				escapeHtml(key.name) + '</span>');
 			var $input;
 			if (key.allowed_values) {
@@ -260,7 +267,10 @@
 				$t.on('change', syncDt);
 				$input.append($hidden, $d, $t);
 			} else {
-				$input = $('<input type="text" class="key-value" style="flex:1">').data('keyid', key.id).val(fileVals[key.id] || '');
+				// Free text: a textarea that grows with its content (one line for a short
+				// value, up to ~12 lines for a summary, then it scrolls).
+				$input = $('<textarea class="key-value metadata-autosize" rows="1" style="flex:1;resize:vertical;min-height:32px;max-height:16em;line-height:1.35;padding:5px 8px"></textarea>')
+					.data('keyid', key.id).val(fileVals[key.id] || '');
 			}
 			$li.append($input);
 			$list.append($li);
@@ -287,6 +297,9 @@
 		);
 		document.body.appendChild(dialog);
 		dialog.showModal();
+		dialog.style.display = 'flex';  // only now: a closed <dialog> must stay display:none
+		$(dialog).find('textarea.metadata-autosize').each(function() { autosize(this); })
+			.on('input', function() { autosize(this); });
 
 		$save.on('click', function() {
 			$list.find('li:not(:last-child)').each(function() {
@@ -310,10 +323,11 @@
 			if (!name) return;
 			ocsPost('tags/' + tagId + '/keys', { keyname: name }).done(function(data) {
 				if (data && data.key) {
-					var $li = $('<li style="margin:4px 0;display:flex;gap:6px;align-items:center"></li>');
+					var $li = $('<li style="margin:4px 0;display:flex;gap:6px;align-items:flex-start"></li>');
 					$li.append(
-						'<span style="flex:0 0 120px">' + escapeHtml(data.key.name) + '</span>',
-						$('<input type="text" class="key-value" style="flex:1">').data('keyid', data.key.id)
+						'<span style="flex:0 0 120px;padding-top:6px">' + escapeHtml(data.key.name) + '</span>',
+						$('<textarea class="key-value metadata-autosize" rows="1" style="flex:1;resize:vertical;min-height:32px;max-height:16em;line-height:1.35;padding:5px 8px"></textarea>').data('keyid', data.key.id)
+							.on('input', function() { autosize(this); })
 					);
 					$newKeyRow.before($li);
 					$(dialog).find('.new-key-name').val('');
