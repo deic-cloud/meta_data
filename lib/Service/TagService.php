@@ -642,6 +642,17 @@ class TagService {
 		if ($secret === '' || $this->clientService === null) {
 			return null;
 		}
+		// A node noted as not answering (same note as the server's file-storage code,
+		// 'remote_host_down', 2 min) is not asked again: no wait for each listing.
+		$down = null;
+		$host = strtolower((string)parse_url($remote, PHP_URL_HOST) . (parse_url($remote, PHP_URL_PORT) !== null ? ':' . parse_url($remote, PHP_URL_PORT) : ''));
+		try {
+			$down = \OCP\Server::get(\OCP\ICacheFactory::class)->createLocal('remote_host_down');
+			if ($down->get($host) !== null) {
+				return null;
+			}
+		} catch (\Throwable) {
+		}
 		try {
 			$response = $this->clientService->newClient()->post($remote . '/index.php/apps/meta_data/' . $path, [
 				'json'    => $json,
@@ -658,6 +669,9 @@ class TagService {
 			$body = $resp !== null ? json_decode((string)$resp->getBody(), true) : null;
 			if (is_array($body)) {
 				return $body;
+			}
+			if ($e instanceof \GuzzleHttp\Exception\ConnectException) {
+				$down?->set($host, time(), 120);
 			}
 			$this->logger->debug('meta_data: ' . $path . ' at ' . $remote . ' failed: ' . $e->getMessage());
 			return null;
