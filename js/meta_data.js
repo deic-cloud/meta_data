@@ -91,6 +91,49 @@
 		return null;
 	}
 
+	// ─── The file's location (path in the user's tree) ───────────────────────
+	//
+	// Shown at the top of the tab: a search result (Files' "Search everywhere")
+	// otherwise gives no hint of the folder a file lives in. NC31+ passes an
+	// @nextcloud/files Node (path, dirname); NC30 a FileInfo (path = folder, name).
+
+	function getLocation(node) {
+		if (!node) return null;
+		if (typeof node.path === 'string' && typeof node.basename === 'string') {
+			var dir = typeof node.dirname === 'string' ? node.dirname
+				: node.path.slice(0, Math.max(1, node.path.lastIndexOf('/')));
+			return { path: node.path, dir: dir || '/' };
+		}
+		var name = node.name || (typeof node.get === 'function' ? node.get('name') : '');
+		var folder = node.path || (typeof node.get === 'function' ? node.get('path') : '');
+		if (typeof folder === 'string' && name) {
+			folder = folder.replace(/\/+$/, '') || '/';
+			return { path: (folder === '/' ? '' : folder) + '/' + name, dir: folder };
+		}
+		return null;
+	}
+
+	function openFolder(dir, fileId) {
+		var router = window.OCP && window.OCP.Files && window.OCP.Files.Router;
+		if (router && typeof router.goToRoute === 'function') {
+			router.goToRoute(null, { view: 'files', fileid: String(fileId) }, { dir: dir });
+		} else {
+			window.location.href = OC.generateUrl('/apps/files/files/' + fileId) + '?dir=' + encodeURIComponent(dir);
+		}
+	}
+
+	function prependLocation(el, fileId) {
+		var loc = getLocation(el._node || el._mdFileInfo);
+		if (!loc) return;
+		var $box = $('<div class="metadata-location" style="padding:8px 8px 4px"></div>');
+		$box.append($('<div style="font-weight:bold;margin-bottom:2px"></div>').text(t('meta_data', 'Location')));
+		$box.append($('<div style="overflow-wrap:anywhere;word-break:break-all"></div>').text(loc.path));
+		var $open = $('<a href="#" style="text-decoration:underline"></a>').text(t('meta_data', 'Open folder'));
+		$open.on('click', function(e) { e.preventDefault(); openFolder(loc.dir, fileId); });
+		$box.append($('<div style="margin-top:2px"></div>').append($open));
+		$(el).prepend($box);
+	}
+
 	// ─── Notify NC files app of a tag assignment change ──────────────────────
 
 	function notifyFilesApp(el, tagName, added) {
@@ -137,8 +180,10 @@
 				}
 			}
 			renderTagList(el, fileId, allTags, fileTags);
+			prependLocation(el, fileId);
 		}).fail(function() {
 			$(el).html('<div style="padding:12px">' + t('meta_data', 'Error loading metadata') + '</div>');
+			prependLocation(el, fileId);
 		});
 	}
 
@@ -437,16 +482,19 @@
 			// NC30 API
 			mount: function(el, fileInfo) {  // SidebarTab.vue computed wraps this as onMount
 				mountedEl = el;
+				el._mdFileInfo = fileInfo;
 				mountedFileId = getFileId(fileInfo);
 				loadAndRenderPanel(el, mountedFileId);
 			},
 			onMount: function(el, fileInfo) { // alias: some code paths call onMount directly
 				mountedEl = el;
+				el._mdFileInfo = fileInfo;
 				mountedFileId = getFileId(fileInfo);
 				loadAndRenderPanel(el, mountedFileId);
 			},
 			update: function(fileInfo) {
 				mountedFileId = getFileId(fileInfo);
+				if (mountedEl) mountedEl._mdFileInfo = fileInfo;
 				if (mountedEl) loadAndRenderPanel(mountedEl, mountedFileId);
 			},
 			destroy: function() {
@@ -458,6 +506,7 @@
 			setIsActive: function(active) { if (active && mountedEl) loadAndRenderPanel(mountedEl, mountedFileId); },
 			setActive: function() {},
 			setFileInfo: function(fileInfo) {
+				if (mountedEl) mountedEl._mdFileInfo = fileInfo;
 				if (mountedEl) loadAndRenderPanel(mountedEl, getFileId(fileInfo));
 			},
 
