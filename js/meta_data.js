@@ -130,8 +130,29 @@
 		$box.append($('<div style="overflow-wrap:anywhere;word-break:break-all"></div>').text(loc.path));
 		var $open = $('<a href="#" style="text-decoration:underline"></a>').text(t('meta_data', 'Open folder'));
 		$open.on('click', function(e) { e.preventDefault(); openFolder(loc.dir, fileId); });
-		$box.append($('<div style="margin-top:2px"></div>').append($open));
+		var $links = $('<div style="margin-top:2px"></div>').append($open);
+		$box.append($links);
 		$(el).prepend($box);
+		appendPublicLinkShortcut($links, loc.path);
+	}
+
+	// A shortcut to the public-link dialog (files_sharding) - where an item is
+	// listed in or removed from the public catalogue - shown only when the item
+	// has a public link. The dialog stays the one place this is done.
+	function appendPublicLinkShortcut($links, path) {
+		var fsh = window.OCA && OCA.FilesSharding;
+		if (!fsh || typeof fsh.showPublicLinkDialog !== 'function') return;
+		$.ajax({
+			url: OC.linkToOCS('apps/files_sharing/api/v1', 2) + 'shares',
+			type: 'GET', data: { path: path, format: 'json' }, dataType: 'json',
+			headers: { 'OCS-APIRequest': 'true' },
+		}).then(function(r) {
+			var shares = (r && r.ocs && r.ocs.data) || [];
+			if (!shares.some(function(s) { return s.share_type === 3; })) return;
+			var $pl = $('<a href="#" style="text-decoration:underline"></a>').text(t('meta_data', 'Public link and catalog listing'));
+			$pl.on('click', function(e) { e.preventDefault(); fsh.showPublicLinkDialog(path); });
+			$links.append(document.createTextNode(' \u00b7 ')).append($pl);
+		});
 	}
 
 	// ─── Notify NC files app of a tag assignment change ──────────────────────
